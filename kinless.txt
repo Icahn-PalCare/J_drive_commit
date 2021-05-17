@@ -8971,7 +8971,7 @@ outreg using "${int_share}/model_sens.rtf", varlabels stats(e_b p e_ci) ctitles(
  eq_merge addtable note("Home is referent category" \ "Death at home includes Hospice, Assisted living, & Retirement") title("Multinomial Logit Community Dwelling Sample Weighted") replace 
 
  
-  
+ 
 
 svy, subpop(if died_one_year==1 & age1>=51): prop location_of_death
  
