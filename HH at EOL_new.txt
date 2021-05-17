@@ -1,0 +1,1640 @@
+= V4 Outline MultiLine NoSorting TabWidth=30
+
+H="Project Outline"
+
+/* 
+********************HEADING******************** 
+
+Project Name: Home health and Hospice at the end of life	
+
+Date Started: December 14, 2020
+
+Primary Investigator: Claire Ankuda
+Funding Source: NPCRC
+
+Primary Analyst: Subashini Rajagopalan
+Secondary Analyst:
+
+Datasets Used: Beeson
+
+Simple Outline: Describe rates and characteristics of those receiving: 1) Home health alone vs. 2) Hospice alone vs. 3) Home health and Hospice vs. 
+
+4) Neither Home health nor Hospice in the last 6 months of life. Compare skilled care visits (RN, PT/OT, SW, HHA, MD) for each of the four groups 
+
+at the end of life (both last 6 months of life and last month of life).
+
+
+/* SAS libnames*/
+
+/*NHATS cleaned path*/
+
+libname nhats 'D:\nhats\shared\base_data\nhats cleaned';
+
+
+/*medicare xwalk and claims path*/
+
+libname claimsas "D:\NHATS\Shared\raw\CMS\NHATS CMS DUA 28016\Extracted";
+
+libname medi 'D:\NHATS\Shared\raw\CMS\NHATS CMS DUA 28016\Merged\SAS';
+
+libname claims "D:\NHATS\Shared\base_data\CMS_claims\SAS";
+
+
+/**Path to previous version of the project**/
+
+
+libname HHA "D:\NHATS\Projects\home health policy\cka_hh at EOL\data";
+
+libname INT "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\int_data";
+
+
+/** New datasets**/
+
+libname Newint "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data";
+
+H="Get HH, HS visits from Rev center files"
+
+/**Getting revenue center variables for hospice and homehealth**/
+
+/**Home health**/
+
+Data hh_rev_cntr;
+
+set claimsas.hha_revenue_center_j_09-claimsas.hha_revenue_center_j_14 claimsas.hha_revenue_center_15-claimsas.hha_revenue_center_16 claimsas.hha_revenue_center_k_17;
+
+run;
+
+proc contents data=hh_rev_cntr; run;
+
+
+data hh_rev_cntr1; keep bene_id clm_id clm_thru_dt rev_cntr_dt rev_cntr hcpcs_cd rev_cntr_unit_cnt; set hh_rev_cntr; run;
+
+
+proc export data= hh_rev_cntr1 outfile="D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hh_rev_cntre.dta" dbms=stata replace; run; 
+
+
+proc freq data=hh_rev_cntr1;tables rev_cntr*hcpcs_cd/list missing;run;
+
+
+/**Hospice**/
+
+Data hospice_rev_cntre; 
+
+set claimsas.hospice_revenue_center_j_09-claimsas.hospice_revenue_center_j_14 claimsas.hospice_revenue_center_15-claimsas.hospice_revenue_center_16 
+
+claimsas.hospice_revenue_center_k_17; run;
+
+
+proc contents data=hospice_rev_cntre;run;
+
+
+data hospice_rev_cntre1; set hospice_rev_cntre; keep bene_id clm_id clm_thru_dt rev_cntr_dt rev_cntr hcpcs_cd rev_cntr_unit_cnt; run;
+
+
+proc export data= hospice_rev_cntre1 outfile="D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hospice_rev_cntre.dta" dbms=stata replace; run; 
+
+
+proc freq data=hospice_rev_cntre1; tables rev_cntr*hcpcs_cd/list missing;run;
+
+H="Death date"
+ use "D:\NHATS\Shared\base_data\NHATS cleaned\sp_round_1_8.dta"
+
+ keep spid death_date
+by spid, sort: gen pid= _n
+keep if pid==1
+
+ rename death_date index_date
+ gen index_month=month(index_date)
+gen index_year=year(index_date)
+
+  save "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\death_date_new.dta", replace
+
+H="Calculating HH and HS visits during last year of life"
+ use "D:\NHATS\Shared\base_data\NHATS cleaned\sp_round_1_8.dta"
+
+ keep spid death_date
+by spid, sort: gen pid= _n
+keep if pid==1
+
+ rename death_date index_date
+ gen index_month=month(index_date)
+gen index_year=year(index_date)
+
+  save "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\death_date_new.dta", replace
+  
+*Homehealth
+  
+  use "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hh_rev_cntre.dta" 
+  
+  gen home_health=1
+
+
+*DROP IF NOT MEANINGFUL CLAIM LINE
+drop if rev_cntr== "0001" | rev_cntr== "0023" | rev_cntr== "0270" | rev_cntr== "0623"| hcpcs_cd== "G0457" | hcpcs_cd== "Q5001" | hcpcs_cd== "Q5002" | hcpcs_cd== "Q5009"
+gen servicetype_hh=.
+*RN
+replace servicetype_hh=1 if hcpcs_cd== "G0154" | hcpcs_cd== "G0299" |  hcpcs_cd== "G0300" |  hcpcs_cd== "G0493" |  hcpcs_cd== "G0494" | hcpcs_cd== "G0495" | hcpcs_cd== "G0496" | hcpcs_cd== "G0162" | hcpcs_cd== "G0163" | hcpcs_cd== "G0164" 
+*PT
+replace servicetype_hh=2 if hcpcs_cd== "G0151" | hcpcs_cd== "G0157" | hcpcs_cd== "G0159"
+*ot
+replace servicetype_hh=3 if hcpcs_cd== "G0152" |  hcpcs_cd== "G0158" |  hcpcs_cd== "G0160"
+*SLP
+replace servicetype_hh=4 if hcpcs_cd== "G0153" | hcpcs_cd== "G0161"
+*CSW
+replace servicetype_hh=5 if hcpcs_cd== "G0155"
+*HHA
+replace servicetype_hh=6 if hcpcs_cd== "G0156"
+
+drop if servicetype_hh==.
+
+*merge to bene_id
+merge m:1 bene_id using "D:\NHATS\Shared\raw\CMS\NHATS CMS DUA 28016\Crosswalks\xwalk_2016.dta" , keepusing(spid)
+keep if _merge==3
+drop _merge
+*merge to death date
+merge m:1 spid using "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\death_date_new.dta"
+
+keep if _merge==3
+drop if index_date==.
+drop _merge
+
+
+*make an indicator for a HH claim that is within 6 months of death
+gen hh_dth_days= index_date-rev_cntr_dt
+keep if hh_dth_days<184 & hh_dth_days>-90
+
+*drop if duplicate claim lines per service per day for the same service type
+by spid rev_cntr_dt servicetype_hh, sort: gen sid=_n
+keep if sid==1
+drop sid
+
+*now make a per-decedent summary measure with count of hh visits
+sort spid rev_cntr_dt
+gen nurse_hh=1 if servicetype_hh==1 
+gen therapist_hh=1 if servicetype_hh==2 |servicetype_hh==3 |servicetype_hh==4 
+gen sw_hh=1 if servicetype_hh==5 
+gen hha_hh=1 if servicetype_hh==6 
+by spid: egen nursevisits_hh_6m= total (nurse_hh)
+by spid: egen therapyvisits_hh_6m= total (therapist_hh )
+by spid: egen swvisits_hh_6m=total (sw_hh)
+by spid: egen hhavisits_hh_6m=total (hha_hh)
+by spid: egen nursevisits_hh_1m= total(cond(nurse_hh==1 & hh_dth_days<31 & hh_dth_days>-90),1,0) 
+by spid: egen therapyvisits_hh_1m= total(cond(therapist_hh==1 & hh_dth_days<31 & hh_dth_days>-90),1,0) 
+by spid: egen swvisits_hh_1m=total(cond(sw_hh==1 & hh_dth_days<31 & hh_dth_days>-90),1,0) 
+by spid: egen hhavisits_hh_1m=total(cond(hha_hh==1 & hh_dth_days<31 & hh_dth_days>-90),1,0) 
+
+
+*NOW LIMIT TO ONE OBSERVATION/PERSON
+drop pid
+sort spid rev_cntr_dt
+by spid, sort: gen pid=_n
+keep if pid==1
+
+keep spid home_health nursevisits_hh_1m therapyvisits_hh_1m swvisits_hh_1m hhavisits_hh_1m nursevisits_hh_6m therapyvisits_hh_6m swvisits_hh_6m hhavisits_hh_6m
+
+save "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hh_final.dta", replace
+
+clear all
+set more off
+
+  *Hospice  
+  
+  use "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hospice_rev_cntre.dta" 
+  
+  gen hospice=1
+  
+  *DROP IF NOT MEANINGFUL CLAIM LINE
+drop if substr(hcpcs_cd, 1, 1) =="Q" | rev_cntr== "0001" | rev_cntr== "0250" | substr(rev_cntr, 1, 2) =="29" | rev_cntr== "636"| rev_cntr== "771" | hcpcs_cd== "G0337" | hcpcs_cd== "A4216" | hcpcs_cd== "A9270" | hcpcs_cd== "E0779" | hcpcs_cd== "E0781" |hcpcs_cd== "G0008" |substr(hcpcs_cd, 1, 1) =="J" 
+
+gen servicetype_hs=.
+*RN
+replace servicetype_hs=1 if hcpcs_cd== "G0154" | hcpcs_cd== "G0299" |  hcpcs_cd== "G0300" 
+*PT
+replace servicetype_hs=2 if hcpcs_cd== "G0151" 
+*ot
+replace servicetype_hs=3 if hcpcs_cd== "G0152" 
+*SLP
+replace servicetype_hs=4 if hcpcs_cd== "G0153" 
+*CSW
+replace servicetype_hs=5 if hcpcs_cd== "G0155" | hcpcs_cd=="G9477"
+*HSA
+replace servicetype_hs=6 if hcpcs_cd== "G0156" 
+
+drop if servicetype_hs==.
+
+*merge to bene_id
+merge m:1 bene_id using "D:\NHATS\Shared\raw\CMS\NHATS CMS DUA 28016\Crosswalks\xwalk_2016.dta" , keepusing(spid)
+keep if _merge==3
+drop _merge
+*merge to death date
+merge m:1 spid using "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\death_date_new.dta"
+keep if _merge==3
+drop if index_date==.
+drop _merge
+
+
+*make an indicator for a HS claim that is within 6 months of death
+gen hs_dth_days= index_date-rev_cntr_dt
+keep if hs_dth_days<184 & hs_dth_days>-90
+
+*drop if duplicate claim lines per service per day for the same service type
+by spid rev_cntr_dt servicetype_hs, sort: gen sid=_n
+keep if sid==1
+drop sid 
+
+*now make a per-decedent summary measure with count of hs visits
+sort spid rev_cntr_dt
+gen nurse_hs=1 if servicetype_hs==1 
+gen therapist_hs=1 if servicetype_hs==2 |servicetype_hs==3 |servicetype_hs==4 
+gen sw_hs=1 if servicetype_hs==5 
+gen hsa_hs=1 if servicetype_hs==6 
+by spid: egen nursevisits_hs_6m= total (nurse_hs)
+by spid: egen therapyvisits_hs_6m= total (therapist_hs)
+by spid: egen swvisits_hs_6m=total (sw_hs)
+by spid: egen hsavisits_hs_6m=total (hsa_hs)
+by spid: egen nursevisits_hs_1m= total(cond(nurse_hs==1 & hs_dth_days<31 & hs_dth_days>-90),1,0) 
+by spid: egen therapyvisits_hs_1m= total(cond(therapist_hs==1 & hs_dth_days<31 & hs_dth_days>-90),1,0) 
+by spid: egen swvisits_hs_1m=total(cond(sw_hs==1 & hs_dth_days<31 & hs_dth_days>-90),1,0) 
+by spid: egen hsavisits_hs_1m=total(cond(hsa_hs==1 & hs_dth_days<31 & hs_dth_days>-90),1,0) 
+
+
+*NOW LIMIT TO ONE OBSERVATION/PERSON
+drop pid
+sort spid rev_cntr_dt
+by spid, sort: gen pid=_n
+keep if pid==1
+
+keep spid hospice nursevisits_hs_6m therapyvisits_hs_6m swvisits_hs_6m hsavisits_hs_6m nursevisits_hs_1m therapyvisits_hs_1m swvisits_hs_1m hsavisits_hs_1m
+
+
+save "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hs_final.dta", replace
+
+
+
+H="Get index date"
+
+proc import datafile="D:\nhats\shared\base_data\nhats cleaned\sp_round_1_8.dta" out=NHATS replace; run;
+
+proc contents data=NHATS;run;
+
+
+data index1;
+set NHATS (keep=spid death_date death_month death_year);
+index_date=death_date;
+index_month=death_month;
+index_year=death_year;
+run;
+
+
+data xwalk; set claim.xwalk_2016; run;
+
+proc contents data=xwalk;run;
+
+
+proc sql;
+create table index as select a.*, b.bene_id
+from index1 a left join
+xwalk b 
+on a.spid=b.spid;
+quit;
+
+proc sort data=index out=Newint.index nodupkey;
+by spid bene_id index_year;
+run;
+
+H="Get continuous FFS before index"
+/*sort claims denominator file*/
+
+proc sort data=medi.mbsf_06_17 out=mbsf  nodupkey;
+by bene_id year;
+run;
+
+proc sort data=Newint.index out=index nodupkey;
+by bene_id index_year;
+run;
+
+proc contents data=mbsf;run;
+
+/*get mbsf just for interview year*/
+
+proc sql; 
+create table mbsf_index_year as select
+a.*,b.buyin12,b.year,b.hmoind12
+from index a inner join
+mbsf b
+on trim(left(a.bene_id))=trim(left(b.BENE_ID)) 
+and a.index_year=b.year;
+quit;
+
+
+proc sql;
+select count(distinct bene_id) from mbsf_index_year;
+quit;
+
+proc contents data=mbsf_index_year;run;
+
+proc freq data=mbsf_index_year; tables buyin12 HMOIND12 index_month/list missing;run;
+
+data mbsf_index_year2;
+set mbsf_index_year;
+if length(trim(left(buyin12)))=12 and index_month>0 then do;
+buyin_iy=substr(trim(left(buyin12)),1,index_month);
+hmo_iy=substr(trim(left(HMOIND12)),1,index_month);
+end;
+else do;
+buyin_iy=trim(left(buyin12));
+hmo_iy=trim(left(HMOIND12));
+end;
+format index_date date9.;
+run;
+
+proc freq data=mbsf_index_year2; tables buyin_iy hmo_iy/list missing;run;
+
+proc means n;
+var index_month;
+run;
+
+proc sql;
+create table mbsf_index_year_bef as select
+a.bene_id,a.year as index_year,
+b.year as index_year_bef,
+b.year, b.buyin12,b.HMOIND12
+from mbsf_index_year a inner join
+mbsf b
+on trim(left(a.bene_id))=trim(left(b.bene_id))
+and 0<a.year-b.year<=1 order by bene_id,year;
+quit;
+
+
+/* and the year before... 1922 have the -2 year dn file*/
+proc sql;
+create table mbsf_index_year_2bef as select
+a.bene_id,a.index_year,a.index_year_bef,
+b.year as index_year_2bef,
+b.year,b.buyin12,b.HMOIND12
+from mbsf_index_year_bef a inner join
+mbsf b
+on trim(left(a.bene_id))=trim(left(b.bene_id))
+and 0<a.index_year_bef-b.year<=1 order by bene_id,year;
+quit;
+
+/*merge the insurance data for death year, -1 and -2 years into single dataset*/
+proc sql;
+create table all_insurance as select a.*,b.buyin12 as buyin_bef,b.HMOIND12 as hmo_bef from
+mbsf_index_year2 a
+left join
+mbsf_index_year_bef b
+on trim(left(a.bene_id))=trim(left(b.bene_id)) and a.index_year=b.index_year;
+quit;
+
+proc sql;
+create table all_insurance2 as select a.*,b.buyin12 as buyin_2bef,b.HMOIND12 as hmo_2bef from
+all_insurance a
+left join
+mbsf_index_year_2bef b
+on trim(left(a.bene_id))=trim(left(b.bene_id)) and a.index_year=b.index_year; 
+quit;
+
+proc contents data=all_insurance2;run;
+
+/*merge death year and year before death buy-in and hmo variables
+Trim so the final variable _6m is 6 months pre-death
+Note: indicator variables for parts a and b and hmo are null if don't
+have information for full 6 months pre-death*/
+data all_insurance3;
+set all_insurance2;
+buyin_2y=trimn(left(buyin_2bef))||trimn(left(buyin_bef))||trimn(left(buyin_iy));
+hmo_2y=trimn(left(hmo_2bef))||trimn(left(hmo_bef))||trimn(left(hmo_iy));
+
+buyin_2y_r=reverse(trim(buyin_2y));
+hmo_2y_r=reverse(trim(hmo_2y));
+
+
+/*create length of continous a&b and non-hmo coverage vars*/
+if indexc(buyin_2y_r,"0","1","2","A","B")=0 then part_ab_n_mos=length(buyin_2y_r)-1;
+if indexc(buyin_2y_r,"0","1","2","A","B") then part_ab_n_mos=indexc(buyin_2y_r,"0","1","2","A","B")-1;
+if indexc(hmo_2y_r,"1","2","4","A","B","C")=0 then non_hmo_d_n_mos=length(hmo_2y_r)-1;
+if indexc(hmo_2y_r,"1","2","4","A","B","C") then non_hmo_d_n_mos=indexc(hmo_2y_r,"1","2","4","A","B","C")-1;
+if part_ab_n_mos<=non_hmo_d_n_mos then cont_ffs_n_mos=part_ab_n_mos;
+if non_hmo_d_n_mos<part_ab_n_mos then cont_ffs_n_mos=non_hmo_d_n_mos;
+run;
+
+proc contents data=all_insurance3;run;
+
+proc freq data=all_insurance3; tables buyin_2y_r  hmo_2y_r part_ab_n_mos non_hmo_d_n_mos cont_ffs_n_mos/list missing;run;
+
+proc sort data= all_insurance3 out=all_insurance4; by spid; run;
+
+proc print data=all_insurance4 (obs=30); var spid buyin_2y_r  part_ab_n_mos  hmo_2y_r  non_hmo_d_n_mos cont_ffs_n_mos;run;
+
+
+data Newint.ffs_before;
+set all_insurance3;
+run;
+
+proc export data=ffs_before outfile="D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\ffs_before.dta" replace; 
+run;
+
+
+H="Making vars for hospital admits"
+/**Making vars for hospital admits in last 6 months and 1 month of life**/
+
+use "D:\NHATS\Shared\raw\CMS\NHATS CMS DUA 28016\Merged\STATA\ip_06_17.dta" 
+keep admit_date bene_id
+
+merge m:1 bene_id using "D:\NHATS\Shared\raw\CMS\NHATS CMS DUA 28016\Crosswalks\xwalk_2016.dta" , keepusing (spid)
+keep if _merge==3
+drop _merge bene_id
+
+merge m:1 spid using "D:\NHATS\Shared\raw\CMS\NHATS CMS DUA 28016\Merged\STATA\death_date.dta", keepusing (death_date)
+
+gen days_admit_death= death_date-admit_date
+replace days_admit_death=. if death_date==. | admit_date==.
+replace days_admit_death=. if days_admit_death<0
+gen hosp_6m_ind=0
+replace hosp_6m_ind=1 if days_admit_death>=0 & days_admit_death<184
+egen num_admits_6m=total(hosp_6m_ind==1), by (spid)
+gen hosp_1m_ind=0
+replace hosp_1m_ind=1 if days_admit_death>=0 & days_admit_death<31
+egen num_admits_1m=total(hosp_1m_ind==1), by (spid)
+label var num_admits_6m "Number of hospital admits in last 6 months of life"
+label var num_admits_1m "Number of hospital admits in last 1 month of life"
+
+by spid, sort: gen pid=_n
+keep if pid==1
+drop pid admit_date death_date _merge days_admit_death hosp_6m_ind hosp_1m_ind
+
+ save "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hosp admits eol.dta", replace 
+
+H="NHATS days at home calculation"
+/* NHATS Days at home code */
+
+
+proc import out=death_date datafile="D:\NHATS\Shared\base_data\CMS_claims\Stata\death_date.dta" replace; 
+run;
+
+data index_d;
+set death_date;
+if death_date~=.;
+index_date=death_date;
+format index_date date9.;
+run;
+
+proc sql;
+create table index as select a.*, b.*
+from index_d a inner join 
+claim.xwalk_2016 b
+on a.spid=b.spid;
+quit;
+
+proc contents data=index_d;run;
+
+
+proc sort data=index out=index1 nodupkey;
+by bene_id index_date;
+run;
+
+data index_183 (keep= spid bene_id date index_date index_183 death_year ) ;
+set index1;
+index_183=index_date-183;
+do i=index_183 to index_date;
+date=i;
+output;
+end;
+format date date9.;
+format index_date date9.;
+format index_183 date9.;
+run;
+run;
+
+proc contents data=index_183;run;
+
+proc sort data=index_183; by spid date;run;
+
+proc print data=index_183 (obs=100); var spid index_date index_183 date; run;
+
+data index_30 (keep= spid bene_id date index_date index_30 death_year ) ;
+set index1;
+index_30=index_date-30;
+do i=index_30 to index_date;
+date=i;
+output;
+end;
+format date date9.;
+format index_date date9.;
+format index_30 date9.;
+run;
+run;
+
+proc sort data=index_30; by spid date;run;
+
+
+proc print data=index_30 (obs=100); var spid index_date index_30 date; run;
+
+
+
+/**************************************************************************/
+/**************** Claims Before Death  ******************************/
+/**************************************************************************/
+/*macro to get claims 183 days before death
+saves datasets for each claim type */
+%macro claimspre(days_start=,days_bef_index=,source=,suf=, year=);
+
+/*claims fully within x time of death date*/
+proc sql;
+create table &source._meet_1_&suf. as select a.*,b.index_date,b.spid 
+from claim.&source._&year. a inner join
+index1 b
+on a.bene_id=b.bene_id
+and &days_start<=b.index_date-a.admit_date<=&days_bef_index ;
+quit;
+
+/*claims that start earlier than x time but span into x time before death*/
+proc sql;
+create table &source._meet_2_&suf. as select a.*,b.index_date,b.spid 
+from claim.&source._&year. a inner join
+index1 b
+on a.bene_id=b.bene_id
+and b.index_date-a.admit_date>&days_bef_index and b.index_date-a.disch_date<=&days_bef_index;
+quit;
+
+data &source._meet_&suf.(compress=yes);
+set &source._meet_1_&suf. &source._meet_2_&suf.;
+run;
+
+%mend;
+
+/*6m before death*/
+%claimspre(days_start=0,days_bef_index=183,source=hh,suf=6m,year=09_17); /*home health*/
+%claimspre(days_start=0,days_bef_index=183,source=ip,suf=6m,year=06_17); /*inpatient*/
+%claimspre(days_start=0,days_bef_index=183,source=dm,suf=6m,year=09_17); /*dme*/
+%claimspre(days_start=0,days_bef_index=183,source=op,suf=6m,year=09_17); /*outpatient*/
+%claimspre(days_start=0,days_bef_index=183,source=pb,suf=6m,year=09_17); /*carrier*/
+%claimspre(days_start=0,days_bef_index=183,source=snf,suf=6m,year=09_17); /*snf*/
+
+/*1m before death*/
+%claimspre(days_start=0,days_bef_index=30,source=hh,suf=1m,year=09_17); /*home health*/
+%claimspre(days_start=0,days_bef_index=30,source=ip,suf=1m,year=06_17); /*inpatient*/
+%claimspre(days_start=0,days_bef_index=30,source=dm,suf=1m,year=09_17); /*dme*/
+%claimspre(days_start=0,days_bef_index=30,source=op,suf=1m,year=09_17); /*outpatient*/
+%claimspre(days_start=0,days_bef_index=30,source=pb,suf=1m,year=09_17); /*carrier*/
+%claimspre(days_start=0,days_bef_index=30,source=snf,suf=1m,year=09_17); /*snf*/
+
+
+
+
+/* Hospice file a little different format than the rest, but does the same as above */
+
+/**data hs_09_17 (keep= hspcstrt hs_start admit_date disch_date bene_id provider) ;
+set claim.hs_09_17;
+hs_start=input(put(hspcstrt, 8.), yymmdd8.);
+format hs_start date9.;
+format admit_date date9.;
+run;**/
+
+/*claims fully within x time of death date*/
+proc sql;
+create table hs_meet_1_6m as select a.*,b.index_date,b.spid, b.bene_id 
+from claim.hs_09_17 a inner join
+index1 b
+on a.bene_id=b.bene_id
+and 0<=b.index_date-a.admit_date<=183;
+quit;
+
+/*claims that start earlier than x time but span into x time before death*/
+proc sql;
+create table hs_meet_2_6m as select a.*,b.index_date,b.spid, b.bene_id
+from claim.hs_09_17 a inner join
+index1 b
+on a.bene_id=b.bene_id
+and b.index_date-a.admit_date>183 and b.index_date-a.disch_date<=183;
+quit;
+
+data hs_meet_6m(compress=yes);
+set hs_meet_1_6m hs_meet_2_6m;
+run;
+
+proc sql;
+create table ip_meet_6m_rev as select a.*,b.* 
+from ip_meet_6m a left join
+claim.ip_rev_06_17 b
+on a.bene_id=b.bene_id
+and a.clm_id=b.clm_id;
+quit;
+
+proc sql;
+create table op_meet_6m_rev as select a.*,b.* 
+from op_meet_6m a left join
+claim.op_rev_09_17 b
+on a.bene_id=b.bene_id
+and a.clm_id=b.clm_id;
+quit;
+
+
+
+/**HS claims for 30 days before death**/
+
+
+/*claims fully within x time of death date*/
+proc sql;
+create table hs_meet_1_1m as select a.*,b.index_date,b.spid, b.bene_id 
+from claim.hs_09_17 a inner join
+index1 b
+on a.bene_id=b.bene_id
+and 0<=b.index_date-a.admit_date<=30;
+quit;
+
+/*claims that start earlier than x time but span into x time before death*/
+
+
+proc sql;
+create table hs_meet_2_1m as select a.*,b.index_date,b.spid, b.bene_id
+from claim.hs_09_17 a inner join
+index1 b
+on a.bene_id=b.bene_id
+and b.index_date-a.admit_date>30 and b.index_date-a.disch_date<=30;
+quit;
+
+data hs_meet_1m(compress=yes);
+set hs_meet_1_1m hs_meet_2_1m;
+run;
+
+
+proc sql;
+create table ip_meet_1m_rev as select a.*,b.* 
+from ip_meet_1m a left join
+claim.ip_rev_06_17 b
+on a.bene_id=b.bene_id
+and a.clm_id=b.clm_id;
+quit;
+
+proc sql;
+create table op_meet_1m_rev as select a.*,b.* 
+from op_meet_1m a left join
+claim.op_rev_09_17 b
+on a.bene_id=b.bene_id
+and a.clm_id=b.clm_id;
+quit;
+
+
+
+
+/*emergency and observation stays identified from the inpatient and outpatient file. */
+
+%macro er_obs(source=,suf=);
+
+data &source._meet_&suf._er_obs;
+set &source._meet_&suf._rev;
+er_flag = 0;
+obs_flag = 0;
+array rev_cntr rev_cntr1-rev_cntr400;
+do over rev_cntr;
+if strip(rev_cntr) in:("0450", "0451", "0452", "0456", "0459", "0981") then er_flag = 1;
+if strip(rev_cntr) in:("0762") then obs_flag =1;
+/*if strip(rvcntr) in:("0760") and strip(hcpcs) in: ("G0378") and rvunt>=8 then obs_flag =1;*/
+end;
+run;
+
+data &source._er_meet_&suf.;
+set &source._meet_&suf._er_obs;
+if er_flag=1;
+run;
+
+data &source._obs_meet_&suf.;
+set &source._meet_&suf._er_obs;
+if obs_flag=1;
+run;
+
+%mend;
+
+/*6m before death*/
+%er_obs(source=ip, suf=6m); /*inpatient file*/
+%er_obs(source=op, suf=6m); /*outpatient file*/
+
+/**1m before death**/
+
+%er_obs(source=ip, suf=1m); /*inpatient file*/
+%er_obs(source=op, suf=1m); /*outpatient file*/
+
+
+/* Putting stays into 1 observation per day format. Flagging if they go to a different facility, but are still IP.*/
+
+%macro dates(source=,suf=, npi=, days=);
+
+data &source._meet_&suf._d;
+set &source._meet_&suf.;
+format index_date date9.;
+format admit_date date9.;
+format disch_date date9.;
+days_a=index_date-admit_date;
+days_d=index_date-disch_date;
+run;
+
+data &source._meet_&suf._dates;
+set &source._meet_&suf._d;
+do i=admit_date to disch_date;
+date=i;
+output;
+end;
+format date date9.;
+run;
+
+data &source._&suf.; 
+set &source._meet_&suf._dates;
+where 0<=index_date-date<=&days.;
+&source.=1;
+&source._npi=&npi.;
+run;
+
+proc sort data=&source._&suf. out=&source._&suf. ;
+by bene_id date ;
+run;
+
+data &source._dup_&suf. (keep= bene_id spid index_date flag date admit_date disch_date days_a days_d &source CLM_FAC_TYPE_CD PRVDR_NUM &source._npi at_physn_upin ) ;
+set &source._&suf.;
+if date=lag(date) and bene_id=lag(bene_id) and (PRVDR_NUM~=lag(PRVDR_NUM) or &source._npi~=lag(&source._npi)) then flag=1;
+run;
+
+proc sort data=&source._dup_&suf. nodupkey out=&source._nodup_&suf.;
+by bene_id date &source &source._npi;
+run;
+
+%mend;
+
+%dates(source=ip,suf=6m,npi=ORG_NPI_NUM,days=183);
+%dates(source=op_er,suf=6m,npi=ORG_NPI_NUM,days=183);
+%dates(source=op_obs,suf=6m,npi=ORG_NPI_NUM,days=183);
+%dates(source=ip_er,suf=6m,npi=ORG_NPI_NUM,days=183);
+%dates(source=ip_obs,suf=6m,npi=ORG_NPI_NUM,days=183);
+%dates(source=snf,suf=6m,npi=ORG_NPI_NUM,days=183);
+%dates(source=hh,suf=6m,npi=ORG_NPI_NUM,days=183);
+%dates(source=hs,suf=6m,npi=ORG_NPI_NUM,days=183);
+
+
+%dates(source=ip,suf=1m,npi=ORG_NPI_NUM,days=30);
+%dates(source=op_er,suf=1m,npi=ORG_NPI_NUM,days=30);
+%dates(source=op_obs,suf=1m,npi=ORG_NPI_NUM,days=30);
+%dates(source=ip_er,suf=1m,npi=ORG_NPI_NUM,days=30);
+%dates(source=ip_obs,suf=1m,npi=ORG_NPI_NUM,days=30);
+%dates(source=snf,suf=1m,npi=ORG_NPI_NUM,days=30);
+%dates(source=hh,suf=1m,npi=ORG_NPI_NUM,days=30);
+%dates(source=hs,suf=1m,npi=ORG_NPI_NUM,days=30);
+
+
+
+
+
+/* Bringing in MDS section*/
+
+/**proc import out=mds datafile="D:\NHATS\Projects\home health policy\cka_hh at EOL\data\int_data\mds.dta" replace; 
+run;**/
+
+proc contents data=int.mds;run;
+
+%macro mds_cal(days=,suf=);
+
+/*MDS claims fully within x time of death date*/
+proc sql;
+create table mds_meet_1_&suf. as select a.*,b.index_date,b.spid 
+from int.mds a inner join
+index1 b
+on trim(left(a.bene_id))=trim(left(b.bene_id))
+and 0<=b.index_date-a.admit<=&days. ;
+quit;
+
+/*MDS claims that start earlier than x time but span into x time before death*/
+proc sql;
+create table mds_meet_2_&suf. as select a.*,b.index_date,b.spid 
+from int.mds a inner join
+index1 b
+on trim(left(a.bene_id))=trim(left(b.bene_id))
+and b.index_date-a.admit>&days. and b.index_date-a.discharge<=0;
+quit;
+
+data mds_meet_&suf. (compress=yes);
+set mds_meet_1_&suf. mds_meet_2_&suf.;
+run;
+
+
+data mds_meet_&suf._d;
+set mds_meet_&suf.;
+format index_date date9.;
+day_a=index_date-admit;
+day_d=index_date-discharge;
+rename date=date_1;
+run;
+
+
+data mds_meet_&suf._dates;
+set mds_meet_&suf._d;
+do i=admit to discharge;
+date=i;
+output;
+end;
+format date date9.;
+run;
+
+
+data mds_&suf.; 
+set mds_meet_&suf._dates;
+where 0<=index_date-date<=&days.;
+mds=1;
+run;
+
+proc sort data=mds_&suf. out=mds_dup_&suf. ;
+by bene_id date ;
+run;
+
+
+data mds_nodup_&suf. (keep= bene_id trgt_dt date admit discharge index_date day_a day_d date_1 mds) ;
+set mds_dup_&suf.;
+run;
+
+
+proc sort data=index_&days.;
+by bene_id index_date;
+run;
+
+%mend
+
+%mds_cal(days=183,suf=6m);
+
+%mds_cal(days=30,suf=1m);
+
+proc contents data=mds_nodup_6m;run;
+
+/* merging all files together*/
+
+data all_claims;
+merge index_183 ip_nodup_6m ip_er_nodup_6m ip_obs_nodup_6m op_er_nodup_6m op_obs_nodup_6m snf_nodup_6m hh_nodup_6m hs_nodup_6m mds_nodup_6m;
+by bene_id date;
+run;
+
+/* keeping only 183 days before index(death) date). */
+data all_claims1;
+set all_claims;
+if index_date-date<=183 and index_date-date>=0 then days_183=1;
+if index_date-date<=30 and index_date-date>=0 then days_30=1;
+run;
+
+proc freq data=all_claims1;tables days_183*days_30/list missing;run;
+
+
+
+%macro final_cal(days=,suf=);
+
+data all_claims_&suf.;
+set all_claims1;
+where days_&days.=1;
+run;
+
+
+proc sort data=all_claims_&suf.;
+by bene_id date;
+run;
+
+proc sort data=all_claims_&suf. nodupkey out=all_claims_&suf._1;
+by bene_id date;
+run;
+
+
+data all_claims_&suf._2;
+set all_claims_&suf._1;
+not_home=0;
+if ip=1 then not_home=1;
+if ip_er=1 then not_home=1;
+if ip_obs=1 then not_home=1;
+if op_er=1 then not_home=1;
+if op_obs=1 then not_home=1;
+if snf=1 then not_home=1;
+if mds=1 then not_home=1;
+*if hs=1 and home_hs=0 then not_home=1;
+*ebl--3/11/20--getting relevant count of hospice days;
+/**if hs=1 and not_home=1 then hs=0;
+if hs=1 then not_home=1;**/
+home=0;
+if not_home=0 then home=1;
+if bene_id~="" ; 
+run;
+
+
+
+
+proc sql;
+create table total_home_days_&suf
+as select spid,
+sum(home) as home_days_&suf.
+/**sum(hs) as hs_days**/
+from all_claims_&suf._2
+group by spid;
+quit;
+
+%mend;
+
+%final_cal(days=183,suf=6m);
+
+%final_cal(days=30,suf=1m);
+
+proc sql;
+select count (distinct spid) as Ndistinct,
+count (*) as Nobs from ALL_CLAIMS_6M_2; quit;
+
+proc sql;
+select count (distinct spid) as Ndistinct,
+count (*) as Nobs from ALL_CLAIMS_1M_2; quit;
+
+/**proc sort data=all_claims_6m_2 nodupkey out=test_6m_final;
+by bene_id date;
+run;
+
+proc sort data=all_claims_1m_2 nodupkey out=test_1m_final;
+by bene_id date;
+run;**/
+
+proc freq data=ALL_CLAIMS_6M_2; tables ip*ip_er*ip_obs*op_er*op_obs*Snf*mds*not_home*home/list missing;run;
+
+proc freq data=ALL_CLAIMS_1M_2; tables ip*ip_er*ip_obs*op_er*op_obs*Snf*mds*not_home*home/list missing;run;
+
+proc freq data=total_home_days_6m;
+table home_days_6m/list missing;
+run;
+
+proc freq data=total_home_days_1m;
+table home_days_1m/list missing;
+run;
+
+proc contents data=total_home_days_6m ; run;
+
+proc contents data=total_home_days_6m;run;
+
+/**Sorting and merging**/
+
+proc sort data=total_home_days_6m; by spid; run;
+
+proc sort data=total_home_days_1m; by spid; run;
+
+Data total_home_days_final; merge total_home_days_6m total_home_days_1m; by spid;run;
+
+proc contents data=total_home_days_final;run;
+
+
+proc export data=total_home_days_final outfile="D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\total_home_days_final.dta" replace; 
+run;
+
+
+H="Putting dataset together"
+/**Putting dataset together**/
+ 
+ 
+ /**merge m:1 spid using "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hs_final.dta"
+ drop clm_id clm_thru_dt  rev_cntr   rev_cntr_dt  hcpcs_cd rev_cntr_unit_cnt _merge**/
+ 
+ use "D:\NHATS\Shared\base_data\NHATS cleaned\sp_round_1_8.dta"
+ merge m:1 spid using "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hh_final.dta"
+ drop _merge
+ merge m:1 spid using "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hs_final.dta"
+ drop _merge
+ merge m:1 spid using  "D:\NHATS\Shared\raw\NHATS\NHATS Public\round_5\NHATS_Round_5_SP_File.dta",  keepusing(w5an2011wgt0)
+ 
+ *define cohort as those who die, and who have an interview within the last year of life
+ gen keep=0
+ 
+ gen ivwdeathdays= death_date-ivw_date
+ sort spid wave
+ by spid: egen closedth=min(ivwdeathdays) if ivwdeathdays>0
+  
+ replace keep=1 if closedth==ivwdeathdays & closedth!=.
+ replace keep=0 if ivwdeathdays>365
+ 
+ *tab keep=1 reveals 2,087 obs of people who died
+ 
+ *merge in ffs before
+ drop _merge 
+ merge m:1 spid using  "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\ffs_before.dta", keepusing (cont_ffs_n_mos)
+ recode cont_ffs_n_mos (0/11=0)(12/36=1), gen(ffseol)
+ 
+ *drop if in MA in last 12 months
+ replace keep=0 if ffseol==0
+ *777 individuals lost because in MA in last month of life, n=1,310
+ 
+ 
+ 
+ *merge with days at home in last year
+ drop _merge
+ merge m:1 spid using "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\total_home_days_final.dta" 
+*exclude those who have no days at home
+*==44
+ replace keep=0 if home_days_6m==0
+ 
+ *exclude those on hospice whole last year
+ /**replace keep=0 if hs_days>364 & hs_days!=.**/
+ 
+ drop _merge
+ merge m:1 spid using "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\hosp admits eol.dta"
+ 
+ 
+ 
+ save "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\Mergeddata.dta", replace
+
+H="variable cleaning"
+/*****Variable Cleaning*****/
+ 
+ use "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\Mergeddata.dta"
+ 
+ *VARIABLE CLEANING
+
+ /**Homehealth**/
+*count of any visits (binary) by category for last 6 months of life
+egen totalvisits_hh_6m=rowtotal(nursevisits_hh_6m therapyvisits_hh_6m swvisits_hh_6m hhavisits_hh_6m)
+recode totalvisits_hh_6m (0=0)(1/716=1), gen(anyvisits_hh_6m)
+recode nursevisits_hh_6m (0=0)(1/716=1), gen(anynurse_hh_6m)
+replace anynurse_hh_6m=0 if anyvisits_hh_6m==0
+recode therapyvisits_hh_6m (0=0)(1/716=1), gen(anytherapy_hh_6m)
+replace anytherapy_hh_6m=0 if anyvisits_hh_6m==0
+recode swvisits_hh_6m (0=0)(1/716=1), gen(anysw_hh_6m)
+replace anysw_hh_6m=0 if anyvisits_hh_6m==0
+recode hhavisits_hh_6m (0=0)(1/716=1), gen(anyhha_hh_6m)
+replace anyhha_hh_6m=0 if anyvisits_hh_6m==0
+
+label var anyvisits_hh_6m "Any HH visit in the last 6 months of life"
+
+*how many visits
+tab anyvisits_hh_6m if keep==1
+tab anynurse_hh_6m if keep==1
+tab anytherapy_hh_6m if keep==1
+tab anysw_hh_6m if keep==1
+tab anyhha_hh_6m if keep==1
+
+
+*count of any visits (binary) by category for last 1 month of life
+egen totalvisits_hh_1m=rowtotal(nursevisits_hh_1m therapyvisits_hh_1m swvisits_hh_1m hhavisits_hh_1m)
+recode totalvisits_hh_1m (0=0)(1/716=1), gen(anyvisits_hh_1m)
+recode nursevisits_hh_1m (0=0)(1/716=1), gen(anynurse_hh_1m)
+replace anynurse_hh_1m=0 if anyvisits_hh_1m==0
+recode therapyvisits_hh_1m (0=0)(1/716=1), gen(anytherapy_hh_1m)
+replace anytherapy_hh_1m=0 if anyvisits_hh_1m==0
+recode swvisits_hh_1m (0=0)(1/716=1), gen(anysw_hh_1m)
+replace anysw_hh_1m=0 if anyvisits_hh_1m==0
+recode hhavisits_hh_1m (0=0)(1/716=1), gen(anyhha_hh_1m)
+replace anyhha_hh_1m=0 if anyvisits_hh_1m==0
+
+label var anyvisits_hh_1m "Any HH visit in the last 1 month of life"
+
+*how many visits
+tab anyvisits_hh_1m if keep==1
+tab anynurse_hh_1m if keep==1
+tab anytherapy_hh_1m if keep==1
+tab anysw_hh_1m if keep==1
+tab anyhha_hh_1m if keep==1
+
+
+/**Hospice**/
+*count of any visits (binary) by category for last 6 months of life
+egen totalvisits_hs_6m=rowtotal(nursevisits_hs_6m therapyvisits_hs_6m swvisits_hs_6m hsavisits_hs_6m)
+recode totalvisits_hs_6m (0=0)(1/716=1), gen(anyvisits_hs_6m)
+recode nursevisits_hs_6m (0=0)(1/716=1), gen(anynurse_hs_6m)
+replace anynurse_hs_6m=0 if anyvisits_hs_6m==0
+recode therapyvisits_hs_6m (0=0)(1/716=1), gen(anytherapy_hs_6m)
+replace anytherapy_hs_6m=0 if anyvisits_hs_6m==0
+recode swvisits_hs_6m (0=0)(1/716=1), gen(anysw_hs_6m)
+replace anysw_hs_6m=0 if anyvisits_hs_6m==0
+recode hsavisits_hs_6m (0=0)(1/716=1), gen(anyhsa_hs_6m)
+replace anyhsa_hs_6m=0 if anyvisits_hs_6m==0
+
+label var anyvisits_hs_6m "Any Hospice visit in the last 6 months of life"
+
+*how many visits
+tab anyvisits_hs_6m if keep==1
+tab anynurse_hs_6m if keep==1
+tab anytherapy_hs_6m if keep==1
+tab anysw_hs_6m if keep==1
+tab anyhsa_hs_6m if keep==1
+
+
+
+*count of any visits (binary) by category for last 1 month of life
+egen totalvisits_hs_1m=rowtotal(nursevisits_hs_1m therapyvisits_hs_1m swvisits_hs_1m hsavisits_hs_1m)
+recode totalvisits_hs_1m (0=0)(1/716=1), gen(anyvisits_hs_1m)
+recode nursevisits_hs_1m (0=0)(1/716=1), gen(anynurse_hs_1m)
+replace anynurse_hs_1m=0 if anyvisits_hs_1m==0
+recode therapyvisits_hs_1m (0=0)(1/716=1), gen(anytherapy_hs_1m)
+replace anytherapy_hs_1m=0 if anyvisits_hs_1m==0
+recode swvisits_hs_1m (0=0)(1/716=1), gen(anysw_hs_1m)
+replace anysw_hs_1m=0 if anyvisits_hs_1m==0
+recode hsavisits_hs_1m (0=0)(1/716=1), gen(anyhsa_hs_1m)
+replace anyhsa_hs_1m=0 if anyvisits_hs_1m==0
+
+label var anyvisits_hs_1m "Any Hospice visit in the last 1 month of life"
+
+*how many visits
+tab anyvisits_hs_1m if keep==1
+tab anynurse_hs_1m if keep==1
+tab anytherapy_hs_1m if keep==1
+tab anysw_hs_1m if keep==1
+tab anyhsa_hs_1m if keep==1
+
+*recode age
+recode agecat (1/2=1 "65-74")(3/4=2 "75-84")(5/6=3 "85+"), gen(age3cat)
+
+/*living in a NH on nhats ivw before death-- decided not to do this-- given they had some days at home in last year
+gen nhstatus=0
+replace nhstatus=1 if closedth==ivwdeathdays & closedth!=. & sp_status==3
+replace keep=0 if nhstatus==1 
+*/
+
+*keep variable for those receiving hh and hh types
+/**gen keephh=keep
+replace keephh=0 if anyvisits==0
+
+gen keepnurse=keep
+replace keepnurse=0 if anynurse==0 | anynurse==.
+
+gen keeptherapy=keep
+replace keeptherapy=0 if anytherapy==0 | anytherapy==.
+
+gen keephha=keep
+replace keephha=0 if anyhha==0 | anyhha==.
+
+gen keepsw=keep
+replace keepsw=0 if anysw==0 | anysw==.**/
+
+/**Change value of days at home for days at home great than 184 or 31**/
+
+replace home_days_6m=183 if home_days_6m==184
+
+replace home_days_1m=30 if home_days_1m==31
+
+
+*make homehealth visits/6 months at home
+
+gen totalvisits_hh_perdah_6m=totalvisits_hh_6m/home_days_6m
+
+gen totalvisits_hh_per30dah_6m=30*totalvisits_hh_perdah_6m
+
+
+gen nursevisits_hh_perdah_6m=nursevisits_hh_6m/home_days_6m
+
+gen nursevisits_hh_per30dah_6m=30*nursevisits_hh_perdah_6m
+
+
+gen therapyvisits_hh_perdah_6m=therapyvisits_hh_6m/home_days_6m
+
+gen therapyvisits_hh_per30dah_6m=30*therapyvisits_hh_perdah_6m
+
+
+
+gen swvisits_hh_perdah_6m=swvisits_hh_6m/home_days_6m
+
+gen swvisits_hh_per30dah_6m=30*swvisits_hh_perdah_6m
+
+
+gen hhavisits_hh_perdah_6m=hhavisits_hh_6m/home_days_6m
+
+gen hhavisits_hh_per30dah_6m=30*hhavisits_hh_perdah_6m
+
+
+*Make hospice visits/6 months at home 
+
+
+gen totalvisits_hs_perdah_6m=totalvisits_hs_6m/home_days_6m
+
+gen totalvisits_hs_per30dah_6m=30*totalvisits_hs_perdah_6m
+
+
+gen nursevisits_hs_perdah_6m=nursevisits_hs_6m/home_days_6m
+
+gen nursevisits_hs_per30dah_6m=30*nursevisits_hs_perdah_6m
+
+
+gen therapyvisits_hs_perdah_6m=therapyvisits_hs_6m/home_days_6m
+
+gen therapyvisits_hs_per30dah_6m=30*therapyvisits_hs_perdah_6m
+
+
+
+gen swvisits_hs_perdah_6m=swvisits_hs_6m/home_days_6m
+
+gen swvisits_hs_per30dah_6m=30*swvisits_hs_perdah_6m
+
+
+gen hsavisits_hs_perdah_6m=hsavisits_hs_6m/home_days_6m
+
+gen hsavisits_hs_per30dah_6m=30*hsavisits_hs_perdah_6m
+
+
+
+
+*make homehealth visits/1 month at home
+
+gen totalvisits_hh_perdah_1m=totalvisits_hh_1m/home_days_1m
+
+gen totalvisits_hh_per30dah_1m=30*totalvisits_hh_perdah_1m
+
+
+gen nursevisits_hh_perdah_1m=nursevisits_hh_1m/home_days_1m
+
+gen nursevisits_hh_per30dah_1m=30*nursevisits_hh_perdah_1m
+
+
+gen therapyvisits_hh_perdah_1m=therapyvisits_hh_1m/home_days_1m
+
+gen therapyvisits_hh_per30dah_1m=30*therapyvisits_hh_perdah_1m
+
+
+
+gen swvisits_hh_perdah_1m=swvisits_hh_1m/home_days_1m
+
+gen swvisits_hh_per30dah_1m=30*swvisits_hh_perdah_1m
+
+
+gen hhavisits_hh_perdah_1m=hhavisits_hh_1m/home_days_1m
+
+gen hhavisits_hh_per30dah_1m=30*hhavisits_hh_perdah_1m
+
+
+*make hospice visits/1 month at home
+
+gen totalvisits_hs_perdah_1m=totalvisits_hs_1m/home_days_1m
+
+gen totalvisits_hs_per30dah_1m=30*totalvisits_hs_perdah_1m
+
+
+gen nursevisits_hs_perdah_1m=nursevisits_hs_1m/home_days_1m
+
+gen nursevisits_hs_per30dah_1m=30*nursevisits_hs_perdah_1m
+
+
+gen therapyvisits_hs_perdah_1m=therapyvisits_hs_1m/home_days_1m
+
+gen therapyvisits_hs_per30dah_1m=30*therapyvisits_hs_perdah_1m
+
+
+
+gen swvisits_hs_perdah_1m=swvisits_hs_1m/home_days_1m
+
+gen swvisits_hs_per30dah_1m=30*swvisits_hs_perdah_1m
+
+
+gen hsavisits_hs_perdah_1m=hsavisits_hs_1m/home_days_1m
+
+gen hsavisits_hs_per30dah_1m=30*hsavisits_hs_perdah_1m
+
+
+
+
+*adls
+recode adl_diff_index (0=0 "0")(1/2=1 "1-2")(3/7=2 "3+"), gen(adl_cat)
+
+*income
+recode income_cat (0=1)(1/3=0), gen(income15kless)
+
+*make hospice for nonmissing val of hospicelml
+sort spid wave
+by spid: egen srhospice= min(hospicelml)
+
+*****cleaning up for move off server
+drop age total_caregiver_comp completed_nsoc eligible_nsoc nhats_death_month nhats_death_date nhats_death_day sr_othercancer_had sr_kidneycancer_had sr_coloncancer_had sr_crvovrnutrncancer_had sr_bladdercancer_had sr_prostatecancer_had sr_breastcancer_had sr_skincancer_had death_date    
+
+drop death_month death_year
+
+drop nhats_death_year
+
+drop ivw_date ivw_day died_12 died_24
+
+
+*recode num admits last year
+recode num_admits_6m (1/14=1), gen(hospital_ind_6m)
+
+recode num_admits_1m (1/14=1), gen(hospital_ind_1m)
+
+*new weighting variable
+gen anfinwgt_new= anfinwgt
+replace anfinwgt_new=w5an2011wgt0 if wave==5
+
+
+ save "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\working file for move off server_ jan 5 2021.dta", replace
+
+
+ 
+
+H="New variables"
+ **Creating variables
+ 
+use "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\working file for move off server_ jan 5 2021.dta"
+ 
+ drop anfinwgt_new
+ 
+ drop if lml==1 | yearsample==2015
+ 
+ ***new weighting variable
+gen anfinwgt_new_final= anfinwgt
+replace anfinwgt_new_final=an2011wgt if wave>=5
+
+
+/**Any visit homehealth or hospice**/
+
+gen anyvisit_6m=0
+replace anyvisit_6m=1 if (anyvisits_hh_6m==1 | anyvisits_hs_6m==1)
+
+gen anyvisit_1m=0
+replace anyvisit_1m=1 if (anyvisits_hh_1m==1 | anyvisits_hs_1m==1)
+
+gen anynursevisit_6m=0
+replace anynursevisit_6m=1 if (anynurse_hh_6m==1 | anynurse_hs_6m==1)
+
+gen anynursevisit_1m=0
+replace anynursevisit_1m=1 if (anynurse_hh_1m==1 | anynurse_hs_1m==1)
+
+gen anytherapyvisit_6m=0
+replace anytherapyvisit_6m=1 if (anytherapy_hh_6m==1 | anytherapy_hs_6m==1)
+
+gen anytherapyvisit_1m=0
+replace anytherapyvisit_1m=1 if (anytherapy_hh_1m==1 | anytherapy_hs_1m==1)
+
+gen anyswvisit_6m=0
+replace anyswvisit_6m=1 if (anysw_hh_6m==1 | anysw_hs_6m==1)
+
+gen anyswvisit_1m=0
+replace anyswvisit_1m=1 if (anysw_hh_1m==1 | anysw_hs_1m==1)
+
+gen anyaidevisit_6m=0
+replace anyaidevisit_6m=1 if (anyhha_hh_6m==1 | anyhsa_hs_6m==1)
+
+gen anyaidevisit_1m=0
+replace anyaidevisit_1m=1 if (anyhha_hh_1m==1 | anyhsa_hs_1m==1)
+
+
+**Type of claim
+ 
+ gen claim_6m=0
+ replace claim_6m=1 if (home_health==1 & hospice==.)
+ replace claim_6m=2 if (home_health==. & hospice==1)
+ replace claim_6m=3 if (home_health==1 & hospice==1)
+ replace claim_6m=4 if (home_health==. & hospice==.)
+ label var claim_6m "Type of claim(s) in the last 6 months of life"
+ label define claim_6m 1"1:Homehealth only" 2"2:Hospice only" 3"3:Homehealth and Hospice" 4"4:Neither homehealth nor hospice"
+ label values claim_6m claim_6m 
+ 
+ 
+ gen claim_1m=0
+ replace claim_1m=1 if (anyvisits_hh_1m==1 & anyvisits_hs_1m!=1)
+ replace claim_1m=2 if (anyvisits_hh_1m!=1 & anyvisits_hs_1m==1)
+ replace claim_1m=3 if (anyvisits_hh_1m==1 & anyvisits_hs_1m==1)
+ replace claim_1m=4 if (anyvisits_hh_1m!=1 & anyvisits_hs_1m!=1)
+ label var claim_1m "Type of claim(s) in the last 1 month of life"
+ label define claim_1m 1"1:Homehealth only" 2"2:Hospice only" 3"3:Homehealth and Hospice" 4"4:Neither homehealth nor hospice"
+ label values claim_1m claim_1m
+ 
+ 
+ 
+ *keep variable for those receiving hh, hs and both in the last 6 months and 1 month of life**/ 
+gen keephh_6m=keep
+replace keephh_6m=0 if claim_6m!=1
+
+gen keephs_6m=keep
+replace keephs_6m=0 if claim_6m!=2
+
+gen keephhhs_6m=keep
+replace keephhhs_6m=0 if claim_6m!=3
+
+
+gen keephh_1m=keep
+replace keephh_1m=0 if home_days_1m==0 | claim_1m!=1
+
+gen keephs_1m=keep
+replace keephs_1m=0 if home_days_1m==0 | claim_1m!=2
+
+gen keephhhs_1m=keep
+replace keephhhs_1m=0 if home_days_1m==0 | claim_1m!=3
+
+
+*keep variable for those receiving hh types in the last 6 months of life**/
+
+gen keephhnurse_6m=keep
+replace keephhnurse_6m=0 if anynurse_hh_6m==0 | anynurse_hh_6m==.
+
+
+gen keephhtherapy_6m=keep
+replace keephhtherapy_6m=0 if anytherapy_hh_6m==0 | anytherapy_hh_6m==.
+
+gen keephha_6m=keep
+replace keephha_6m=0 if anyhha_hh_6m==0 | anyhha_hh_6m==.
+
+gen keephhsw_6m=keep
+replace keephhsw_6m=0 if anysw_hh_6m==0 | anysw_hh_6m==. 
+
+
+*keep variable for those receiving hh types in the last 1 month of life**/
+
+gen keephhnurse_1m=keep
+replace keephhnurse_1m=0 if home_days_1m==0 | anynurse_hh_1m==0 | anynurse_hh_1m==.
+
+
+gen keephhtherapy_1m=keep
+replace keephhtherapy_1m=0 if home_days_1m==0 | anytherapy_hh_1m==0 | anytherapy_hh_1m==.
+
+gen keephha_1m=keep
+replace keephha_1m=0 if home_days_1m==0 | anyhha_hh_1m==0 | anyhha_hh_1m==.
+
+gen keephhsw_1m=keep
+replace keephhsw_1m=0 if home_days_1m==0 | anysw_hh_1m==0 | anysw_hh_1m==.
+
+
+*keep variable for those receiving hs types in the last 6 months of life**/
+
+gen keephsnurse_6m=keep
+replace keephsnurse_6m=0 if anynurse_hs_6m==0 | anynurse_hs_6m==.
+
+
+gen keephstherapy_6m=keep
+replace keephstherapy_6m=0 if anytherapy_hs_6m==0 | anytherapy_hs_6m==.
+
+gen keephsa_6m=keep
+replace keephsa_6m=0 if anyhsa_hs_6m==0 | anyhsa_hs_6m==.
+
+gen keephssw_6m=keep
+replace keephssw_6m=0 if anysw_hs_6m==0 | anysw_hs_6m==. 
+
+
+*keep variable for those receiving hs types in the last 1 month of life**/
+
+gen keephsnurse_1m=keep
+replace keephsnurse_1m=0 if home_days_1m==0 | anynurse_hs_1m==0 | anynurse_hs_1m==.
+
+gen keephstherapy_1m=keep
+replace keephstherapy_1m=0 if home_days_1m==0 | anytherapy_hs_1m==0 | anytherapy_hs_1m==.
+
+gen keephsa_1m=keep
+replace keephsa_1m=0 if home_days_1m==0 | anyhsa_hs_1m==0 | anyhsa_hs_1m==.
+
+gen keephssw_1m=keep
+replace keephssw_1m=0 if home_days_1m==0 | anysw_hs_1m==0 | anysw_hs_1m==. 
+
+ save "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\working_int_file_05122021.dta", replace 
+
+ **Saving final data in old version so I can import it into SAS
+ 
+ saveold "D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\working_int_file_05122021_oldversion.dta", version(12) replace
+
+H="Creating length of stay and transition between hh and hs"
+/***Creating LOS and transition between HH and HS**/
+
+proc import datafile="D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\working_int_file_05122021_oldversion.dta" out=Hh_eol replace; run;
+
+/**Calculating length of stay for HH and HS**/
+
+%macro los_cal (pref=, suf=);
+
+
+proc sort data=&pref._meet_&suf. out=&pref._MEET_&suf.1 nodupkey; by bene_id clm_id; run;
+
+proc sort data=&pref._meet_&suf.1 out=&pref._meet_&suf.2 nodupkey;by bene_id admit_date disch_date AT_PHYSN_NPI ;run;
+
+
+data &pref._meet_&suf.3; set &pref._meet_&suf.2;
+
+los_&pref._&suf.=disch_date-admit_date; 
+
+if los_&pref._&suf.=0 then do;
+
+los_&pref._&suf.=1; end;
+
+run;
+
+proc sort data=&pref._meet_&suf.3; by bene_id admit_date;run;
+
+proc sql;
+
+create table &pref._meet_&suf._final as select distinct bene_id, spid, 
+
+sum(los_&pref._&suf.) as total_los_&pref._&suf. label='Total length of stay'
+
+from &pref._meet_&suf.3 group by spid;
+
+quit;
+
+proc sort data=&pref._meet_&suf._final;by spid;run;
+
+%mend;
+
+%los_cal (pref=hh, suf=6m);
+%los_cal (pref=hh, suf=1m);
+%los_cal (pref=hs, suf=6m);
+%los_cal (pref=hs, suf=1m);
+
+data los_final; merge HH_MEET_6M_FINAL HH_MEET_1M_FINAL HS_MEET_6M_FINAL HS_MEET_1M_FINAL; by spid;run;
+
+/***Looking at transition between HH and HS***/
+
+/***Prepping and merging HH and HS together**/
+
+data hh_eol1; set hh_eol; if claim_6m=3 and keep=1; run;
+
+
+%macro trans (suf=);
+
+proc sort data=HS_MEET_&suf.3; by bene_id admit_date ; run;
+
+proc sort data=HH_MEET_&suf.3; by bene_id admit_date ; run;
+
+
+Data HS_MEET_&suf.4; set HS_MEET_&suf.3; HS=1;  run;
+
+Data HH_MEET_&suf.4; set HH_MEET_&suf.3; HH=1;  run;
+
+Data HH_HS_&suf.; set HH_MEET_&suf.4 HS_MEET_&suf.4; run;
+
+proc sort data=HH_HS_&suf.; by spid admit_date; run;
+
+
+data HH_HS_&suf.1; set HH_HS_&suf.; 
+
+if HH=1 then do;
+
+HH_HS_ind=1; end;
+
+if HS=1 then do;
+
+HH_HS_ind=2; end; label HH_HS_ind="HH/HS indicator: 1-HH 2-HS";  run;
+
+
+proc sql;
+
+create table HH_HS_&suf.2 as select a.*, b.* 
+
+from HH_HS_&suf.1 a inner join hh_eol1 b
+
+on a.spid=b.spid ; quit;
+
+
+proc transpose data=HH_HS_&suf.2 out=HH_HS_&suf.3 (drop=_LABEL_ _NAME_) prefix=HH_HS_ind;
+by spid;
+var HH_HS_ind;
+run;
+
+proc sort data=HH_HS_&suf.3; by spid ;run;
+
+data HH_HS_&suf.4; set HH_HS_&suf.3;
+
+array HH_HS_ind {27}  HH_HS_ind1-HH_HS_ind27;
+
+array transition {27};
+
+do i=2 to 27;
+
+if HH_HS_ind[i]^=. then do;
+
+if HH_HS_ind[i]^=HH_HS_ind[i-1] then transition[i]=1;
+
+else transition[i]=0;
+
+end;
+
+if HH_HS_ind[i]=. then do; transition[i]=0;
+
+end;
+
+end;
+
+total_transitions_&suf.=sum(of transition1-transition27);
+
+drop i;
+
+run;
+
+Data HH_HS_&suf._final; set HH_HS_&suf.4; 
+
+keep spid bene_id total_transitions_&suf.; run;
+
+
+
+%mend;
+
+%trans (suf=6m);
+%trans (suf=1m);
+
+
+/***Merging with final project dataset**/
+
+proc sort data=HH_HS_1m_final;by spid;run;
+
+proc sort data=HH_HS_6m_final;by spid;run;
+
+proc sort data=los_final;by spid;run;
+
+proc sort data=hh_eol;by spid;run;
+
+
+Data HH_eol_final; merge HH_HS_1m_final HH_HS_6m_final los_final hh_eol; by spid;run;
+
+
+Data HH_eol_final_05132021; set HH_eol_final; if keep^=.;drop _merge;
+
+label total_transitions_1m="Number of transitions between HH and HS";
+
+label total_transitions_6m="Number of transitions between HH and HS"; run;
+
+
+proc export data=HH_eol_final_05132021 outfile="D:\NHATS\Projects\home health policy\cka_hh at EOL\data\Test data\working file for move off server_May132021.dta" 
+replace;
+run; ;

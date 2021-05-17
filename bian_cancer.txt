@@ -1,0 +1,227 @@
+= V4 Outline MultiLine NoSorting TabWidth=30
+
+H="Outline"
+/* 
+********************HEADING******************** 
+
+Project Name: Cancer 
+
+Date Started: 7/18/19
+
+Primary Investigator: Bian Liu
+Funding Source: 
+
+Created by: MH
+
+Primary Analyst: MH
+Secondary Analyst: EBL
+
+Datasets Used: NSOC, NHATS, claims
+
+
+*/
+ 
+//STATA
+// Global Macros use $ symbol to be called. 
+
+//Clean NHATS 
+global nhats "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data"
+
+//Intermediate Data Path
+global intpath "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Caregiving\reckrey_unmet_needs\data\int_data"
+
+// Final Data Path
+global datapath "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Caregiving\reckrey_unmet_needs\data\final_data"
+
+//Log files path
+global logpath "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Caregiving\reckrey_unmet_needs\output\logs"
+
+//Log files path
+global outpath "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Caregiving\reckrey_unmet_needs\output\in_progress"
+
+H="NSOC dataset creation"
+use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\raw\NSOC1.dta", clear
+
+rename ccp1* *_cpp
+rename cpp1* *_cpp
+
+rename  (c1* cca1* cdc1* w1* chd1* cse1* cec1* cac1*) (*)
+
+gen wave=1
+
+tempfile nsoc1
+save `nsoc1'
+
+use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\raw\NSOC5.dta", clear
+
+rename cpp5* *_cpp
+rename  (c5* cca5* cdc5* w5* chd5* cse5* cec5* cac5*) (*)
+
+gen wave=5 
+
+tempfile nsoc5
+save `nsoc5'
+
+use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\raw\NSOC7.dta", clear
+
+rename (cca7training cpp7* cll7training) (trainingmed *_cpp traininglml)
+
+rename  (c7* cca7* cdc7* w7* chd7* cse7* cec7* cac7* cdi7* chc7* cll7*) (*)
+
+gen wave=7 
+
+append using "`nsoc1'"
+
+append using "`nsoc5'"
+
+foreach x in srv2hlp training spptgrp hlpkptvs hlpkptgo hlpkptrl hlpkptgr mswkhelp  hlpbnkng hlplft hlpspt hlpstd  hlpordmd hlpdiet hlpfeet hlpskin hlpteeth hlpafwk1 makedecis hlpspkdr hlpmdapt online coordnat {
+tab `x'
+replace `x'=0 if `x'==2
+replace `x'=. if `x'<0
+tab `x'
+}
+
+
+tab hwoftpc
+replace hwoftpc=. if hwoftpc<0
+
+replace mswkhlph =. if mswkhlph<0
+
+foreach x in moresat closr2sp joylevel spapprlv moreconf dealbetr arguelv nerveslv hwoftott{
+tab `x'
+replace `x'=. if `x'<0
+tab `x'
+}
+
+keep spid wave opid srv2hlp training spptgrp hlpkptvs hlpkptgo hlpkptrl hlpkptgr hlpkptwk mswkhelp  hlpbnkng hlplft hlpspt hlpstd  hlpordmd hlpdiet hlpfeet hlpskin hlpteeth hlpafwk1 hwoftpc mswkhlph moresat closr2sp joylevel spapprlv moreconf dealbetr arguelv nerveslv hwoftott makedecis hlpspkdr hlpmdapt online coordnat
+
+
+merge 1:1 spid opid wave using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\nsoc_round_1_7.dta", nogen
+
+
+gen cg_white=.
+replace cg_white=0 if yourrace1==2 | hisplatno==1 & (!missing(yourrace1) & !missing(hisplatno))
+replace cg_white=1 if yourrace1==1 & hisplatno==2
+label var cg_white "White, Non-Hispanic"
+
+gen cg_black=.
+replace cg_black=0 if yourrace2==2 | hisplatno==1 & (!missing(yourrace2) & !missing(hisplatno))
+replace cg_black=1 if yourrace2==1 & hisplatno==2
+label var cg_black "Black, Non-Hispanic"
+
+gen cg_native=.
+replace cg_native=0 if yourrace3==2 | hisplatno==1 & (!missing(yourrace3) & !missing(hisplatno))
+replace cg_native=1 if yourrace3==1 & hisplatno==2
+label var cg_native "American Indian/Alaskan Native, Non-Hispanic"
+
+gen cg_asian=.
+replace cg_asian=0 if yourrace4==2 | hisplatno==1 & (!missing(yourrace4) & !missing(hisplatno))
+replace cg_asian=1 if yourrace4==1 & hisplatno==2
+label var cg_asian "Asian, Non-Hispanic"
+
+gen cg_hispanic=.
+replace cg_hispanic=0 if hisplatno==2
+replace cg_hispanic=1 if hisplatno==1
+label var cg_hispanic "Hispanic Ethnicity"
+
+label var n_sn "Number in social network"
+
+drop white black other hispanic
+ 
+merge 1:1 spid opid wave using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Cancer and Aging\cancer_naomi\cancer_full.dta"
+
+gen sample=1 if _merge==3
+replace sample=0 if _merge==1
+
+saveold "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Cancer and Aging\cancer_naomi\cancer_nsoc.dta", version(12) replace
+
+H="NSOC with post ivw"
+clear all
+
+foreach w in 1 5 7{
+use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\raw\NSOC`w'.dta", clear
+
+gen wave=`w'
+
+keep spid opid wave *diffinc *diffemo *diffphy *diffinlv *diffemlv *diffphlv *exhaustd *toomuch *notime
+
+tempfile nsoc`w'
+save `nsoc`w''
+}
+
+
+
+use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\nsoc_round_1_7.dta", clear
+
+
+merge 1:1 spid opid wave using "`nsoc1'", nogen keepusing(*diffinc *diffemo *diffphy *diffinlv *diffemlv *diffphlv *exhaustd *toomuch *notime)
+
+merge 1:1 spid opid wave using "`nsoc5'", nogen keepusing(*diffinc *diffemo *diffphy *diffinlv *diffemlv *diffphlv *exhaustd *toomuch *notime)
+
+merge 1:1 spid opid wave using "`nsoc7'", nogen keepusing(*diffinc *diffemo *diffphy *diffinlv *diffemlv *diffphlv *exhaustd *toomuch *notime)
+
+foreach x in diffinc diffemo diffphy diffinlv diffemlv diffphlv exhaustd toomuch notime{
+egen `x'=rowmax(*`x')
+drop *1`x' *5`x' *7`x'
+}
+
+rename wave wave_post
+
+
+foreach x of varlist age_op- notime{
+rename `x' `x'_post
+}
+
+
+tempfile post
+save `post'
+
+
+use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Cancer and Aging\cancer_naomi\cancer_nsoc_12_17.dta", clear
+
+//keep if sample==1
+
+gen wave_pre=wave if sample==1
+
+merge 1:1 spid opid wave using "`nsoc1'", nogen keep(master matched) keepusing(*diffinc *diffemo *diffphy *diffinlv *diffemlv *diffphlv *exhaustd *toomuch *notime)
+merge 1:1 spid opid wave using "`nsoc5'", nogen keep(master matched) keepusing(*diffinc *diffemo *diffphy *diffinlv *diffemlv *diffphlv *exhaustd *toomuch *notime)
+merge 1:1 spid opid wave using "`nsoc7'", nogen keep(master matched) keepusing(*diffinc *diffemo *diffphy *diffinlv *diffemlv *diffphlv *exhaustd *toomuch *notime)
+
+foreach x in diffinc diffemo diffphy diffinlv diffemlv diffphlv exhaustd toomuch notime{
+egen `x'=rowmax(*`x')
+drop *1`x' *5`x' *7`x'
+}
+
+foreach x of varlist hlpordmd-hlpafwk1 birthmth_op-notime{
+rename `x' `x'_pre
+}
+rename wave_pre_pre wave_pre
+
+gen wave_post=5 if wave_pre==1
+replace wave_post=7 if wave_pre==5
+
+preserve
+keep if sample==0
+tempfile not_sample
+save `not_sample'
+restore 
+
+keep if sample==1
+
+merge 1:1 spid opid wave_post using  "`post'", gen(cg_pre_post) keep(master matched)
+
+append using "`not_sample'"
+
+codebook spid if cg_pre_post==3
+label var cg_pre_post "CG who have pre and post==3"
+
+saveold "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Cancer and Aging\cancer_naomi\cancer_nsoc_2_12.dta", replace
+
+H="***************************"
+
+
+H="*********************"
+
+
+H="changelog"
+

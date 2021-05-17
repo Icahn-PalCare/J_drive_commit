@@ -1,0 +1,431 @@
+= V4 Outline MultiLine NoSorting TabWidth=30
+
+H="Prospective OOP_Incid Dem Set Up"
+cd "J:\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Kelley_R01_burden_dementia\ask_r01_prospective_oop_incid_dementia\output\in progress" 
+use "J:\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\oopme_final_2016.dta", clear
+rename HHID hhid
+rename PN pn 
+rename year core_year 
+rename total_OOP total_oop
+
+tempfile oopdata
+save `oopdata'
+
+use "J:\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\core_00_to_14_unr.dta", clear 
+
+merge 1:1 hhid pn core_year using "`oopdata'", nogen keepusing (total_oop) keep(match)
+*66,034 not matched 
+
+merge 1:1 hhid pn core_year using "J:\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\pdem_withvarnames_00_14.dta", nogen keepusing(proxy_core pdem) keep(match)
+*78046 not matched 
+
+*merge trk2016 to this data to get race! 
+merge m:1 hhid pn using "J:\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\trk2016tr_r.dta", keepusing(gender hispanic race degree usborn birthyr exdeathyr exdodsource lastaliveyr ) nogen keep(match)
+*21,792 not matched 
+
+*APPEND exit ivws so that they are diff observations 
+append using "J:\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\exit_02_to_16_dt_unr.dta", gen(test) keep (hhid pn id exit_year proxy_exit hospice married_or_part_v2 adl_bedbound livealone hosp dec_all dec_lim dec_whld dec_cat dexp duration adprob lwill loc_hosp location)
+
+sort id core_year 
+by id: gen died = exdeathyr!=.
+by id: gen exit = exit_year!=.
+by id: egen obs_exit = max(exit)
+
+gen age=core_year-birthyr if core_year !=. & birthyr >0
+gen deathage = exdeathyr-birthyr if birthyr >0 & died==1
+
+drop female 
+gen female = 0 if gender ==1 
+replace female = 1 if gender ==2
+
+drop hisp 
+gen hisp = inrange(hispanic,1,3) 
+label var hisp "Hispanic"
+gen newrace = 1 if hisp ==1
+replace newrace = 2 if race ==2 & hisp==0 
+replace newrace =3 if inlist(race,1,7) & hisp == 0 
+replace newrace = 3 if missing(newrace)
+*13 missing obs changed to White/Other 
+drop race
+rename newrace race 
+label define race 1 "Hispanic" 2 "Non-Hispanic Black" 3 "Non-Hispanic White/Other"
+label values race race
+label var race "Race"
+
+gen black = race==2
+label var black "Non-Hispanic Black"
+gen white = race==3
+label var white "Non-Hispanic White/Other"
+
+
+*education
+gen hs = inrange(degree,1,9)
+drop educ ed_less_hs ed_missing hseduc
+rename hs hseduc
+label var hseduc "HS Educ" 
+
+
+*INCIDENT DEMENTIA STARTS HERE *
+sort id core_year 
+by id: egen firstdem_yr = min(cond(pdem>=0.5 & pdem!=.),core_year,.)
+*as long as firstdem != . , it gives all id that have dementia at some point ***4850 ppl w/ dementia 
+
+*4850 IDs (it gives all id that have dementia at some point)
+keep if firstdem !=. 
+
+*if ignoring continuity, as long as incidementia ivw isn't the first or last ivws
+by id: egen maxyr = max(core_year)
+by id: egen minyr = min(core_year)
+
+*get those who have sequential ivw prior to incident dementia wave 
+by id (core_year): gen excl_no_n1 = 1 if core_year[_n-1]==firstdem_yr-2 & pdem[_n-1]<0.5 
+codebook id if excl_no_n1 ==1
+/*
+by id: egen obs_excl_n1= max(excl_no_n1)
+*keep if obs_excl_n1==1 
+
+***get exact nums of IDs missing 
+by id (core_year): gen minyrfirst = 1 if  core_year==firstdem_yr &  minyr < firstdem
+
+codebook id if firstdem ==minyr & exit ==1
+codebook id if minyrfirst ==1
+
+*/
+
+*gets new incident to restrict so that first dem is after the core year, no missing pdem score ivw before incident dementia & has sequential wave before incident dementia. (has n1)
+by id (core_year):gen new_incidem = 1 if core_year==firstdem_yr & pdem[_n-1]<0.5 &  minyr < firstdem & core_year[_n-1]==core_year-2 
+codebook id if new_incid ==1 
+
+
+by id: egen obs_incid = max(new_incidem)
+*keep if obs_incid ==1 
+
+*get exclusion numbers* 
+by id: gen ivw_aft_dem= 1 if obs_incid==1 & core_year > firstdem & core_year!=.
+by id: gen exit_ivw_dem= 1 if obs_incid==1 & core_year > firstdem & exit ==1 
+by id: egen obs_exit_ivw_dem =max(exit_ivw_dem)
+by id: egen obs_ivw_aft =max(ivw_aft_dem)
+codebook id if obs_incid ==1&  obs_exit_ivw ==1 & obs_ivw==1
+codebook id if obs_incid ==1& obs_exit_ivw ==. & obs_ivw==.
+
+by id: gen aft_dem_ivw= 1 if obs_incid==1 & core_year > firstdem & core_year!=.| exit ==1 
+by id: egen obs_aft_dem = max(aft_dem_ivw)
+codebook id if aft_dem==1
+*br id core_year obs_incid new_incid obs_exit exit obs_exit if new_incid ==1 & core_year[_n+1]==.
+
+codebook id if new_incid ==1  & core_year[_n+1]==.
+
+*Time between exit ivw and incident dementia year
+by id: gen time_to_exit = exit_year - firstdem_yr if obs_incid==1 
+tab time_to_exit
+
+*get core_year of next wave onto same row to get years between interviews 
+sort id core_year
+by id: gen next_ivw_yr = core_year[_n+1] 
+by id: replace next_ivw_yr = exit_year[_n+1] if next_ivw_yr ==. & core_year[_n+1]==. & exit_year[_n+1]!=.
+
+by id: gen time_to_ivw = next_ivw_yr-core_year //includes exit interview  
+
+*Among those who have an interview after incident dementia (including those with exit ivws), Time between incident dementia & next ivw 
+tab time_to_ivw obs_exit if  new_incid ==1
+tab time_to_ivw if  new_incid ==1 & core_year[_n+1]!=.
+tab time_to_ivw obs_exit if  new_incid ==1 & obs_exit ==1 & core_year[_n+1]==.
+tab time_to_ivw if  obs_exit ==1 & new_incid ==1
+
+*vars based on dementia 
+by id: gen timetodeath = exdeathyr-firstdem if died ==1 
+
+*get num of core_ivws following incidem 
+
+*capture vars w/ incident dementia & has exit interview 
+sort id core_year 
+by id: gen dem_exit = 1 if firstdem ==core_year & pdem[_n-1] <0.5 & exit ==1 
+
+
+****OOP, IN PROGRESS!***
+*diff of total oop btwn each ivw 
+by id: gen diff_total_oop = total_oop-total_oop[_n-1]
+
+*total oop diff from time of diagnosis to time death
+**use max/min or deathyear_coreyear...
+//by id: gen death_total_oop = total_oop(@death)-total_oop(@ incidem)
+
+*sum total oop spent 
+by id: egen sum_total_oop = total(total_oop) 
+
+*sum total oop restrict on demntia popln //restrict to time period.. 
+by id: egen sum_total_oop_dem = total(total_oop) if firstdem!=.
+
+save "J:\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Kelley_R01_burden_dementia\ask_r01_prospective_oop_incid_dementia\output\data\hrs_incid_dem.dta", replace
+
+
+
+H="Incident Dementia Characteristics Table 1"
+cd "J:\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Kelley_R01_burden_dementia\ask_r01_prospective_oop_incid_dementia\output\in progress" 
+
+use "J:\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Kelley_R01_burden_dementia\ask_r01_prospective_oop_incid_dementia\output\data\hrs_incid_dem.dta", clear
+/* Table is Wrong! Don't use!! 
+***Tables***
+*Table 1: Continuous Incident Dementia 
+preserve
+*keep all obs/ivws with incident dementia (restrict to indivs:cont_incidem==1 )
+
+keep if pri_incidem ==1
+local cvars1 age deathage timetodeath 
+local ivars1 female white black hisp hseduc married marital_wid nhres nhres_2yr hh_worker
+local cvars2  
+local ivars2 srh_pf medicare medicareb medicaid cesd_tot_ge3 smoke_ever stroke_hrs memory_hrs heart_hrs  falls_hrs 
+local cvars3 adl_index_core iadl_ind_core total_oop
+
+label var adl_index_core "ADL Index (Avge)"
+label var iadl_ind_core "IADL Index (Avge)"
+*potential recat adl & iadl 
+gen n=1
+/*
+forvalues i=1/5 {
+	local cativars`i'
+	foreach x of local catvars`i' {
+		gen l`x'=.
+		local lab : var label `x'
+		label var l`x' "`lab'"
+		di "`x'"
+		local `x'
+		levelsof `x', local(levels)
+		foreach l of local levels {
+			gen `x'`l'=`x'==`l' if !missing(`x')
+			local lab : label `x' `l'
+			label var `x'`l' "`lab'"
+			local `x' ``x'' `x'`l'
+}
+		di "``x''"
+		local cativars`i' `cativars`i'' ``x''
+}
+}
+
+di "`catvars1'"
+di "`cativars1'"
+*/
+local rows
+forvalues i=1/3 {
+local rows `rows' `cvars`i'' `ivars`i'' `catvars`i'' `cativars`i''
+}
+
+local rn : word count `rows' 1
+local r=1
+local c=1
+
+mat tab=J(`rn',2,.)
+mat stars=J(`rn',2,0)
+
+forvalues i=1/3 {
+	foreach x of local cvars`i' {
+		sum `x' if pri_incidem==1
+		mat tab[`r',`c']=r(mean)
+		sum `x' if cont_incidem==1
+		mat tab[`r',`c'+1]=r(mean)
+		local r=`r'+1
+		
+}
+	foreach x of local ivars`i' {
+		sum `x' if pri_incidem==1
+		mat tab[`r',`c']=r(mean)*100
+		sum `x' if cont_incidem==1
+		mat tab[`r',`c'+1]=r(mean)*100
+
+		local r=`r'+1
+}
+	foreach x of local catvars`i' {
+		sum `x' if pri_incidem==1
+		sum `x' if cont_incidem==1
+		local r=`r'+1
+		foreach z of local `x' {
+			sum `z' if pri_incidem==1
+			mat tab[`r',`c']=r(mean)*100
+			sum `z' if cont_incidem==1
+			mat tab[`r',`c'+1]=r(mean)*100
+			local r=`r'+1
+}
+}
+}
+	sum n if pri_incidem==1
+	mat tab[`r',`c']==r(N)
+	sum n if cont_incidem==1
+	mat tab[`r',`c'+1]==r(N)
+	local r=1
+
+mat rownames tab=`rows'  N
+
+mat list tab 
+frmttable using "incid_dem_Tab1_`c(current_date)'.rtf", ///
+statmat(tab) title("Characteristics of Incident Dementia") ///
+ctitles("" "Incid Dem(not Continuous)" "Continuous Ivws") varlabels ///
+sdec(2,2,3) annotate(stars) asymbol(*,**,NR) replace
+
+restore 
+
+*/
+
+
+
+H="Notes"
+list id core_year pdem firstdem pri cont all_inc if id== "018245020"|id== "021117010"|id== "024555040"|id== "050993040"|id== "081662020"|id== "205870020"
+
+*1848 ppl with incident dementia and have a prior wave (n1), regardless if following waves are sequential (Table1)
+*1819 ppl with incident dementia & has prior wave (n1) & sequential following waves (Table1)
+
+
+*unique observations of first wave dem & continuous & no dementia @ first ivw & has a pdem score of <0.5 in prior wave. excludes those that are missing pdem in prior wave (1819 ppl)
+
+
+*The interview year e_ivw_yr is based on actual timing, but the core/exit year(exit_year)gives the wave, which is usually better.Use exit_year instead of e_ivw_yr
+
+*flowchart 
+codebook id if firstdem !=.
+*4850 IDs (it gives all id that have dementia at some point)
+
+*by id (core_year):gen new_incidem = 1 if core_year==firstdem_yr & pdem[_n-1]<0.5 &  minyr < firstdem
+codebook id if firstdem !=. & new_incid ==1 
+*3,384 IDs where first dem is greater than current core_year 
+*gets new incident to restrict so that first dem is after the core year 
+**3,384 incident dementia ppl
+
+*by id: egen obs_incid = max(new_incidem)
+codebook id if firstdem !=. & obs_incid ==1 & exit ==1
+2,546 IDs w/ incident dementia & has an exit ivw 
+
+*by id (core_year):gen pri_incidem = 1 if core_year==firstdem_yr & core_year[_n-1]== core_year-2 & pdem[_n-1]<0.5 & core_year[_n+1] !=.
+codebook id if firstdem !=. & pri_incidem==1
+*1848 ppl w/ prior wave & had pdem obs in prior wave to incid dementia wave, ignoring if following waves are continuous 
+*105 ppl w/ wave w/o continuous previous year (core_year-2), but does have a prior ivw (79:firstdem -4, 16: firstdem-6, 6:firstdem-8, 4:firstdem -10)
+
+
+*by id (core_year): gen cont_incidem = 1 if firstdem ==core_year & core_year[_n-1]== core_year-2 & core_year[_n+1]==core_year+2 & pdem[_n-1]<0.5  
+codebook id if cont_incid==1
+*1819 ppl w/ unique observations of first wave dem & continuous & no dementia @ first ivw & has a pdem score of <0.5 in prior wave. excludes those that are missing pdem in prior wave 
+
+***add if obs have exit ivw 
+ tab firstdem exit_year, m
+ codebook id if firstdem !=.& exit ==1
+ *3476 has dementia and an exit interview 
+ 
+ 
+ codebook id if firstdem !=. & obs_incid ==1 & exit ==1
+
+
+/*
+*take degree (education) & race & hispanic from tracker file, don't use vars from core set. when in doubt, use tracker file 
+
+pdem: probably dementia 
+pdem2: prob cognitive impairment, not dementia 
+pdem3: normal 
+
+*incid dem is pdem >0.5 if pdem !=. 
+
+HRS Processing: for core dataset creation 
+pdem varnames created using code from website 
+oop: complicated code from UCLA, use total_oop var. 
+
+require: Age 65+ or interview response & not missing pdem1 score 
+what oop looks like in following yrs 
+id: combines hhid & pn, saved as string, 
+no death info off server to characterize death 
+
+OOP spending after incid dem to death 
+new folder: Prospective OOP_incid dem 
+descriptive popln, demographics, total oop @ n1, t0, p1 
+*/
+
+
+/*
+Notes: 
+total_OOP
+insurance costs 
+helper_OOP93 helper_OOP other_OOP
+
+Questions: 
+HRS processing notetab found in gitcommits folder? yes
+
+check age: just calculate using year & birth year, or incl. months? don't need months. 
+ then to limit age to 65+. odd that there are some 18yo... 
+
+currently excl those who are incid dem @ 1998 (first pdem question appears) and if there is no core year after incid dem 
+-check for exit surveys 
+-Evan to pull time from final core interview to death 
+-excl ppl who are incid dem at 2014 
+
+look at consecutive core_years only after incid hb. (current code), or incl those who may have skipped a core_year interview? (ie. incid_dem @ 2004, no ivw for 2006, and then has 2008 ivw) 
+- get count of how many ppl have skipped ivws. 
+- ok to leave out for now 
+*not totally sure how to get the skipped core_year interview... 
+
+when spot checking for 1000+, what amt is appropriate? (may be repeate q.)
+-depends, sum/scatterplot to look @ data 
+
+look at OOP: look at increase/decrease of OOP from incid hb wave. do you need to account for inflation? already inflation adjusted 
+do % increases/decreases? yes
+-look @ amts of $$
+
+-carry forward race/education/marital if they are missing in later years?
+-carryforward pdem if it is missing in later years? or exclude? ie. 200413010, 201178020, is pdem @ 2006, but 2008 is missing 
+
+*/
+
+
+/***just looking at IDs*****
+
+
+*checks for missing pdem in prior wave 
+*list id core_year pdem firstdem_yr all_cont_inc incidem_cont if id =="012987010"|id==  "015469010"|id== "016681010"|id== "037955020"|id== "038457010"|id== "038961010"|id== "050392010"|id== "050517040"|id== "050884020"|id== "057786010"|id== "060397010"|id== "061145020"|id== "081662020"|id== "083640020"|id== "084622010"|id=="144756020"|id== "146359010"|id== "150990010" 
+
+
+*unique observations of first wave dem & continuous & no dementia @ first ivw & has a pdem score of <0.5 in prior wave. excludes those that are missing pdem in prior wave
+by id: gen p_incidem_cont = 1 if firstdem ==core_year & core_year[_n-1]== core_year-2 & pdem[_n-1]<0.5 & //core_year[_n+1]==core_year+2 |core_year[_n+2]==core_year+4|core_year[_n+3]==core_year+6|core_year[_n+4]==core_year+8
+
+codebook id if firstdem ==core_year & core_year[_n-1]== core_year-2 & pdem[_n-1]<0.5 & core_year[_n+2]==core_year+4
+levelsof id if firstdem ==core_year & core_year[_n-1]== core_year-2 & pdem[_n-1]<0.5 & core_year[_n+2]==core_year+4
+list id core_year firstdem incidem pdem if id=="207625010" |id=="207631010"|id =="208426020" |id=="208487010"
+
+codebook id if firstdem ==core_year & core_year[_n-1]== core_year-2 & pdem[_n-1]<0.5 & core_year[_n+3]==core_year+6
+levelsof id if firstdem ==core_year & core_year[_n-1]== core_year-2 & pdem[_n-1]<0.5 & core_year[_n+3]==core_year+6
+list id core_year firstdem incidem pdem if id == "202698020"|id=="205724010" |id== "210013020"
+
+codebook id if firstdem ==core_year & core_year[_n-1]== core_year-2 & pdem[_n-1]<0.5 &core_year[_n+4]==core_year+8
+levelsof id if firstdem ==core_year & core_year[_n-1]== core_year-2 & pdem[_n-1]<0.5 &core_year[_n+4]==core_year+8
+list id core_year firstdem incidem if id=="205612010"|id=="205635020"| id=="205761020"
+codebook id if firstdem ==core_year & core_year[_n-1]== core_year-2 & pdem[_n-1]<0.5 & core_year[_n+5]==core_year+10
+levelsof id if firstdem ==core_year & core_year[_n-1]== core_year-2 & pdem[_n-1]<0.5 & core_year[_n+5]==core_year+10
+list id core_year firstdem incidem if id =="200040020"| id == "201237010"| id == "201381010"| id == "201417010"| id == "207823020"
+
+*not continuous w/ prior wave 
+levelsof id if firstdem ==core_year & core_year[_n-1]!= core_year-2
+list id core_year firstdem incidem_pri cont_incidem if id == "044027030" |id=="204945020" |id=="205252010" |id== "043471020"|id==  "065172040" |id=="200248010" |id== "200889010"|id== "201157010"|id== "201535010" |id=="202105020" |id== "202533010"|id== "203320020" |id=="203728010"|id== "204229010"|id== "204240010"|id== "204241010" |id=="204248010" |id=="204252010" |id=="204265010" |id=="204270010" |id=="204271010"|id== "204847020"|id== "204860010"|id== "204867010"|id== "204879020" |id=="204883020" |id=="204887010" |id=="204889010" |id=="204897010" |id=="205555010"|id== "205557020" |id=="205559010" |id=="205568010" |id=="205575010"|id== "205591010"|id== "205595010" |id=="205610010" |id=="206277010" |id=="206279010" |id==  "206982020" |id=="206985010" |id=="207428010"|id== "207430010"|id== "207438020"|id==  "208322010"|id== "208331010"|id== "208344010"|id== "211526010"|id== "211539010" |id=="211558020"|id==  "212805010" |id=="212831020" |id=="212860020" |id=="530981020"|id== "533591020"|id== "537566020" 
+
+
+*check if all these IDs are continuous 
+list id core_year firstdem incidem cont_incidem if id == "200956020" |id ==  "200965010" |id ==  "201585010" |id ==  "202119010"  |id == "202610010"  |id == "202817020"  |id == "203370020" |id ==  "203740010"  |id == "204003010" |id ==  "204307010"  |id == "204406010" |id ==  "204852010" |id ==  "205242020" |id == "204332010"  |id == "204972010" |id ==  "204972011"  |id == "204976020"  |id ==  "205946010" |id ==  "205953010"  |id == "205955010"  |id == "205957020"  |id == "205975010"  |id == "205987020" |id ==  "206003010" |id ==  "206924010" |id ==  "206933020"  |id ==  "207399010" |id ==  "207422020" |id ==  "213429020"  |id == "213430010"
+
+*/
+
+*cont_incidem should be 0 while pri_incidem should be 1, first and last years should be excluded 
+levelsof id if not_cont==1 & pri_incidem ==1
+br id core_year firstdem pri_incidem cont_incidem all_cont_inc not_cont if id=="208580010"|id == "208599010"|id == "208602020"|id == "208618010"|id == "207441020"|id == "207443010"|id == "207445020"|id == "206527010"|id == "206547010"|id == "206550010"|id == "206551010"|id == "206085010"|id == "206086010"|id == "206088010"|id == "206090020"
+
+levelsof id if lastdem ==core_year & pdem ==.
+br id core_year firstdem pri_incidem cont_incidem all_cont_inc not_cont pdem if id== "920363010"|id== "920378010"|id== "920389010"|id== "920396010"|id== "920424010"
+
+*ii is pdem indicator. 1:has pdem resp 0: no pdem 
+gen ii = pdem !=.
+tab lastdem ii if all_cont_inc==1
+levelsof id if all_cont_inc==1 & ii == 0 & inrange(lastdem_yr,2002,2010)
+sort id core_year
+br id core_year pdem firstdem lastdem pri_incidem cont_incidem all_cont_inc not_cont if id == "047902010"|id== "047992010"|id== "048534010"|id== "048681010"|id== "051385010"|id== "051510010"|id== "052496010"|id== "055253020"|id==  "084480020"|id== "086901020"|id== "200413010"|id== "200559010"|id== "201178020"|id== "202144010"|id== "202405020"|id== "203370020"|id== "208426020"|id== "210247010"
+
+
+levelsof id if yrs_pass_con ==. & inrange(yrs_pass_pri,2,14)
+br id core_year pdem firstdem lastdem pri_incidem cont_incidem all_cont_inc all_pri_inc yrs_pass_pri if id =="010719030"|id== "017755010"|id== "018828010"|id== "023183010"|id== "024500030"|id== "078099020"|id== "200024010"|id== "200222010"|id== "200235010"|id== "200350010"|id== "200857010"|id== "201349010"|id== "202418010"|id== "202601010"|id== "203795010"|id== "204548020"|id== "205742010"|id== "205800010"|id== "206048020"|id== "206418020"|id== "206498010"|id== "207669010"|id== "208602020"|id== "210701010"|id== "210902020"|id== "211050020"|id== "212912020"|id== "213024020"|id== "213244020"
+
+
+H="ChangeLog"
+*create flowchart of incident dementia & when obs are excluded. include by appending exit ivw to base data and include those w/ exit ivw. 
+
+

@@ -1,0 +1,1585 @@
+= V4 Outline MultiLine NoSorting TabWidth=30
+
+H="First Heading"
+/* 
+********************HEADING******************** 
+
+Project Name: HRS RAND Processing
+
+Date Started: 9/23/2019
+
+Primary Investigator:
+Funding Source:
+
+Created by: 
+
+Primary Analyst: MH
+Secondary Analyst:
+
+Datasets Used: RAND HRS
+
+Simple Outline: Cleaning the RAND HRS dataset.
+
+
+*/
+ 
+//STATA
+// Global Macros use $ symbol to be called. 
+
+//Intermediate Data Path
+global work "D:\HRS\Shared\base_data\hrs_cleaned\working\"
+
+// Final Data Path
+global datapath "D:\HRS\Shared\base_data\hrs_cleaned\"
+
+//Log files path
+global logpath "D:\HRS\Shared\base_data\hrs_cleaned\logs\"
+
+//RAND datapath
+global randpath "D:\HRS\Shared\raw\HRS..."
+
+cd "${work}"
+
+H="HRS RAND reshape"
+/*
+
+Created by: MH
+Date Created: 09/24/2019
+
+Updated by: MH
+Date Updated: 09/30/2019
+
+Description: HRS RAND file pull in and begin cleaning data
+
+
+**************************************************
+*/
+/*
+local date = subinstr("$S_DATE"," ","_",.) 
+local name 1-HRS_RAND_`date'
+di "`name'"
+
+capture log close 
+clear all
+
+set more off
+version 12
+set linesize 80
+set maxvar 20000
+
+
+log using "${logs}/`name'.smcl", text replace
+
+cd "${work}"
+
+***************************************************
+
+use "${randpath${year}}randhrs1992_${year}/*v1*/.dta", clear
+*/
+
+global w 13
+
+cd "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\working"
+
+use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\Rand downloads\randhrs1992_2016v2.dta", clear
+
+rename ra* *_ra
+
+forvalues w=$w(-1)1{
+di "`w'"
+rename (r`w'* s`w'* h`w'*) (*_r_`w' *_s_`w' *_h_`w')
+//rename (*_r *_s) (*_1 *_2)
+}
+rename hhidpn_ra id
+
+local a 1992
+forvalues w=1/$w{
+preserve
+keep hhidpn *_`w' *_ra
+rename (*_`w') (*)
+gen wave=`w'
+gen core_year=`a'
+tempfile wave_`w'
+save "`wave_`w''"
+restore
+local a=`a'+2
+}
+
+use "`wave_1'", clear
+
+save...
+
+use "`wave_2'", clear
+
+save....
+
+use "`wave_3'", clear
+/*
+foreach x in walkr dress eat bath bed map{
+replace `x'_r=`x'_r+4 if inlist(`x'_r, 1,2,3,4)
+}
+*/
+
+forvalues w=4/$w{
+append using "`wave_`w''"
+}
+
+//first make vars into the same format across all waves. 1992 and 1994 have different answer choices than 1996-present
+
+// In 1992 "very difficult" and "can't do" is put into the same category (4), 
+foreach x in walkr dress eat bath bed toilt map phone meds money walks walk1 sit clims clim1 stoop arms push lift dime {
+	replace `x'_r=0 if `x'_r==1 & core_year==1992
+	replace `x'_r=1 if inlist(`x'_r, 2,3,4) & core_year==1992
+	
+	replace `x'_r=1 if inlist(`x'_r, 1,2,3,4,5) & core_year==1994
+}
+
+//
+foreach x in walkr dress eat bath bed toilt{
+	replace `x'h_r=1 if inlist(`x'h_r, 2,3) & core_year==1994
+	
+	replace `x'h_r=0 if `x'_r==0 & core_year>1994 & core_year!=.
+}
+
+foreach x in meals shop{
+replace `x'_r=`x'r_r  if core_year==1994
+}
+
+rename (hhidpn_s) (hhidpn_sp)
+
+foreach x in r s h{
+preserve
+keep hhidpn hhidpn_sp wave core_year *_`x' *_ra
+//the below rename is done because these are household vars that have the same name as respondent and spouse vars. Must make sure to not overwrite vars in the merge below, since the vars can measure two seperate things. 
+capture rename (sswrer_h sswrnr_h sswrxa_h oopmd_h oopmdf_h ifssi_h iirawy1_h iiraw_h ifiraw_h nhmliv_h)  (sswrer_hh sswrnr_hh sswrxa_hh oopmd_hh oopmdf_hh ifssi_hh iirawy1_hh iiraw_hh ifiraw_hh nhmliv_hh)
+
+rename (*_`x') (*) 
+
+gen spouse="`x'"
+
+tempfile `x'
+save ``x'', replace
+restore
+}
+
+use "`r'", clear
+//append using "`s'" -- we don't need spouses since they come in the respondents section. 
+merge m:1 hhidpn wave using "`h'", nogen
+
+rename *_ra *
+
+drop if proxy==. | proxy==.u
+
+//Begin data cleaning
+
+label var proxy "Proxy Interview"
+label define proxy 0 "Not Proxy" 1 "Proxy"
+label values proxy proxy
+
+//gender
+gen female=. 
+replace female=0 if gender==1
+replace female=1 if gender==2
+label var female "Female"
+label define female 0 "Male" 1 "Female", modify
+label values female female
+
+note female: Female
+note female: HRS processing
+note female: 9/30/2019 MH
+
+// education
+
+replace educ=2 if educ==3
+replace educ=3 if educ==4
+replace educ=4 if educ==5
+label var educ "Education"
+label define educ 1 "< High School" 2 "GED/HS Graduate" 3 "Some College" 4 "College and above"
+label values educ educ
+
+note educ: Education level
+note educ: HRS processing
+note educ: 4/29/2020 MH
+
+gen marital=.
+replace marital=1 if inlist(mstat,1,2)
+replace marital=2 if mstat==4
+replace marital=3 if mstat==5
+replace marital=4 if mstat==7
+replace marital=5 if mstat==8
+replace marital=6 if inlist(mstat,3,6)
+
+// Hispanic Ethnicity
+
+gen hisp=hispan
+
+label define hisp 1 "Hispanic- yes" 0 "Non-Hispanic"
+label values hisp hisp
+
+// Religious Preference
+
+label define relig 1 "Protestant" 2 "Catholic" 3 "Jewish" 4 "No Pref" 5 "Other", modify
+label values relig relig
+
+//importance of religion
+//DONT HAVE
+
+
+//Good Friend
+//DONT HAVE
+
+
+//Social Visits
+//DONT HAVE
+
+//Overnight hospital stays
+
+gen hosp_last_2yr =hosp
+label variable hosp_last_2yr "Overnight hospitalization since previous core interview"
+label define hosp_last_2yr 0 "No" 1 "Yes", modify
+label values hosp_last_2yr hosp_last_2yr 
+
+//# of hospitalizations
+gen hosp_stays_2yr=hsptim
+la var hosp_stays_2yr "Number of hospitalizations since previous core ivw"
+tab hosp_stays_2yr core_year , missing
+
+//# of hospital nights 
+gen hosp_nights_2yr = hspnit
+la var hosp_nights_2yr "Number of nights in hospital since previous core ivw"
+tab hosp_nights_2yr core_year , missing
+
+//Insurance
+//Medicare
+
+gen medicare=govmr
+label variable medicare "Medicare, 1=yes"
+
+/////////Medicare PART B
+//ADD
+
+//Medicaid
+gen medicaid=govmd
+label variable medicaid "Medicaid, 1=yes"
+
+// HMO for Medicare / Medicaid coverage?
+// r2601
+// only asked if have medicare or medicaid
+//In Wave 11, due to a survey instrument glitch, only individuals covered by Medicaid and not Medicare were asked the premium questions. This results in a large number of .M=missing values for Wave 11.
+
+generate byte hmo = .
+replace hmo = 1 if !missing(mrprem) //yes
+replace hmo = 0 if mrprem==.n //no
+label variable hmo "HMO, 1=yes"
+
+//CHAMPUS
+gen champus=govva
+label variable champus "CHAMPUS, 1=yes"
+
+//Private Insurance
+gen private_ins=.
+replace private_ins=1 if !missing(prpcnt)
+replace private_ins=0 if prpcnt==0
+label variable private_ins "Private Insurance, 1=yes"
+
+
+//Medigap
+//same as private insurance?
+
+//LTC Insurance
+gen ltc_ins=hiltc
+label var ltc_ins "LTC Insurance, 1=yes"
+
+//LTC Benefits Received 
+//DON'T HAVE
+
+
+//Nursing Home Resident
+gen nhres=nhmliv
+label variable nhres "Nursing Home Resident"
+label define nhres 0 "No" 1 "Yes", modify
+label values nhres nhres
+
+// Nursing home residence currently - start month, year
+gen nhres_start_mo = nhmmvm
+la var nhres_start_mo "Start month for curr. NH residents"
+tab nhres_start_mo core_year, missing
+
+gen nhres_start_yr = nhmmvy
+la var nhres_start_yr "Start year for curr. NH residents"
+tab nhres_start_yr core_year, missing
+
+// Nursing Home in past 2 years
+gen nhres_2yr=nrshom
+label variable nhres_2yr "Nursing Home Resident in the past 2 years"
+label define nhres_2yr 0 "No" 1 "Yes", modify
+label values nhres_2yr nhres
+
+// Number of times in a nursing home in past 2 years - core interview
+//nh_stays DONT HAVE
+
+
+gen nh_start=mdy(nhmmvm,1,nhmmvy)
+
+//NH NIGHTS 
+//DONT HAVE
+//gen nh_nights
+
+//NH Months
+//DONT HAVE
+//gen nh_mos
+
+//NH insurance
+//DONT HAVE
+
+//Spouse lives with Respondent
+//DONT HAVE
+//gen resspouse
+
+//Number of household members
+gen hhm=hhres
+replace hhm=. if hhres==.m
+label variable hhm "Number of Household Members"
+
+//Number of Children
+rename child child_all
+gen child=evbrn
+label variable child "Number of Children, not their children's spouses"
+
+//Number of Grand Children
+//DONT HAVE
+
+//Number of Children including step-children excl. grand children
+label var child_all "Number of Children, including step-children excl. Grandchildren"
+
+//Number of all children including grandchildren
+//DONT HAVE 
+//gen allchil
+
+//Number of Resident Children
+//DONT HAVE 
+//gen reschild
+
+//Self-reported Health
+gen srh=shlt
+label var srh "Self Rated Health"
+label define srh 1 "Excellent" 2 "Very Good" 3 "Good" 4 "Fair" 5 "Poor"
+label val srh srh
+
+//cesd1 - depressed in the last week
+gen cesd1 = depres
+la var cesd1 "CESD - Depressed in last week"
+
+//cesd2 - felt activities were effort in the last week
+gen cesd2 = effort
+la var cesd2 "CESD - Activities were effort in last week"
+
+
+//cesd3 - restless sleep in the last week
+gen cesd3 = sleepr
+la var cesd3 "CESD - Restless Sleep in last week"
+tab cesd3 core_year,missing
+
+//cesd4 - was happy in the last week
+//this one is reversed 0 = was happy 1 = was not happy
+gen cesd4 = whappy
+la var cesd4 "CESD - Was not happy in last week"
+
+//cesd5 - lonely in the last week
+gen cesd5 = flone
+la var cesd5 "CESD - Lonely in last week"
+tab cesd5 core_year,missing
+
+//cesd6 - enjoyed life in the last week
+gen cesd6 = enlife
+la var cesd6 "CESD - Did not enjoy life in last week"
+tab cesd6 core_year,missing
+
+//cesd7 - felt sad in the last week
+gen  cesd7 = fsad
+la var cesd7 "CESD - Sad in last week"
+tab cesd7 core_year,missing
+
+//cesd8 - unmotivated in the last week
+gen byte cesd8 = going
+la var cesd8 "CESD - Unmotivated in last week"
+tab cesd8 core_year,missing
+
+//ever drink alcohol
+gen ever_drink =drink
+la var ever_drink "Ever drink alcoholic beverages"
+tab ever_drink core_year,missing
+
+//days per week drink
+gen days_drink = drinkd
+la var days_drink "Days per week drink alcoholic beverages"
+tab days_drink core_year,missing
+
+//number of drinks per day, coded to 0 if don't drink, . if missing
+//different from how Ling had it initally coded where . = missing or don't drink (not asked)
+gen n_drinks_3m = drinkn
+la var n_drinks_3m "Number of alcoholic drinks per day"
+tab n_drinks_3m core_year, missing
+
+// Ever smoked?
+gen smoke_ever=smokev
+la var smoke_ever "Ever smoked?"
+tab smoke_ever core_year, missing
+
+// Currently smoke
+gen smoke_curr=smoken
+la var smoke_curr "Currently smoke cigarettes?"
+tab smoke_curr core_year,missing
+
+//Vigourous exercise
+gen vig_phy_act=.
+replace vig_phy_act=0 if inlist(vgactf,3,4,5)
+replace vig_phy_act=1 if inlist(vgactf,1,2)
+la var vig_phy_act "Vigorous physical activity more than 1x per week"
+
+//Current Weight, pounds, asked every interview
+gen wgt_curr=weight*2.205
+la var wgt_curr "Weight current wave, in pounds"
+
+//Current height, ft, only asked in first interview.
+gen height_ft_temp=height*3.281
+la var height_ft_temp "Height, feet"
+
+//Current height, ft, only asked in first interview.
+gen height_in_temp=height*39.37
+la var height_in_temp "Height, Inches"
+
+// Hours spent helping relatives or friends
+//gen help_friends = .
+
+//END part1
+
+//ADLS
+local a dr wk bh e tx t
+local b dress walkr bath eat bed toilt
+local c dressh walkrh bathh eath bedh toilth
+local d dressing walking bathing eating transferring toileting
+
+local n: word count `a'
+
+forvalues i=1/`n'{
+	local f : word `i' of `a'
+	local g : word `i' of `b'
+	local h : word `i' of `c'
+	local j : word `i' of `d'
+	
+	//Difficulty
+	gen adl_diff_`f'=.
+	replace adl_diff_`f'=0 if inlist(`g',0)
+	replace adl_diff_`f'=1 if inlist(`g',1,2)
+	la var adl_diff_`f' "Difficulty `d' 1=yes"
+	
+	//Help
+	gen adl_`f'_core =.
+	replace adl_`f'_core =0 if `h'==0
+	replace adl_`f'_core =0 if inlist(`h',1,2,3)
+	label variable adl_`f'_core "Help `j' - Core int."
+	label define adl_`f'_core 0 "No" 1 "Yes", modify
+	label values adl_`f'_core adl_`f'_core
+}
+
+
+gen adl_equip_wk = .
+replace adl_equip_wk = 1 if walkre==1 
+replace adl_equip_wk = 0 if walkre==0
+la var adl_equip_wk "Use equipment to walk? 1=yes"
+tab adl_equip_wk core_year, missing
+
+gen byte adl_equip_tx = .
+replace adl_equip_tx = 1 if bede==1
+replace adl_equip_tx = 0 if bede==0
+la var adl_equip_tx "Use equipment transfers to bed? 1=yes"
+tab adl_equip_tx core_year, missing
+
+
+//IADLS 
+
+local a map mp gr ph rx m
+local b map meals shop phone meds money
+local c "reading maps" "meal prep" "grocery shopping"  "phone calls" "taking medication" "managing money"
+
+local n: word count `a'
+
+forvalues i=1/`n'{
+	local f : word `i' of `a'
+	local g : word `i' of `b'
+	local j : word `i' of "`c'"
+	
+	//Difficulty
+	gen iadl_diff_`f'=.
+	replace iadl_diff_`f'=0 if inlist(`g',0)
+	replace iadl_diff_`f'=1 if inlist(`g',1,2)
+	la var iadl_diff_`f' "Difficulty with `j' 1=yes"
+}
+	
+	
+//DONT HAVE IADL HELP INDICATORS
+
+
+//Functional limitations from core interviews
+
+local a wk_many wk_one sit sta_many sta_one stp reach push lift dime
+local b walks walk1 sit clims clim1 stoop arms push lift dime
+local c "walking several blocks" "walking one block" "sitting 2 hours" "climbing stairs - many flights" "climbing stairs - one flight" "stooping" "reaching with arms" "pushing/pulling large objects" "lifting weights over 10lbs" "picking up a dime"
+
+local n: word count `a'
+
+forvalues i=1/`n'{
+	local f : word `i' of `a'
+	local g : word `i' of `b'
+	local j : word `i' of "`c'"
+	
+	//Function difficulty
+	gen fl_diff_`f'=.
+	replace fl_diff_`f'=0 if inlist(`g',0)
+	replace fl_diff_`f'=1 if inlist(`g',1,2)
+	la var fl_diff_`f' "Difficulty `j' 1=yes"
+}
+
+//ADL HELPERS
+//DONT HAVE
+
+
+//IADL HELPERS
+//DONT HAVE
+
+// Home health worker
+// Nursing home residents are not asked this question, and so their answers are set to missing.
+gen hh_worker=.
+replace hh_worker=homcar if nhres==0
+la var hh_worker "Home health worker help? 1=yes"
+
+//Part 3
+
+/* Comorbidities from core interviews  */
+/*Cancer treatment - HRS core*/
+
+gen cancer_hrs=.
+replace cancer_hrs=0 if inlist(cancr,0,4,5)
+replace cancer_hrs=1 if inlist(cancr,1,3)
+label variable cancer_hrs "Cancer - core"
+label define cancer_hrs 0 "No" 1 "Yes", modify
+label values cancer_hrs cancer_hrs
+
+/*Cancer treatment vars*/
+/*DONT HAVE */
+
+
+/* Lung Disease */
+
+gen lung_hrs=.
+replace lung_hrs=0 if inlist(lung,0,4,5)
+replace lung_hrs=1 if inlist(lung,1,3)
+label variable lung_hrs "Lung Disease - core"
+label define lung_hrs 0 "No" 1 "Yes" , modify
+label values lung_hrs lung_hrs
+
+/* Lung condtion vars */
+
+/* Heart Conditions */
+generate heart_hrs = .
+replace heart_hrs=0 if inlist(heart,0,4,5)
+replace heart_hrs=1 if inlist(heart,1,3)
+label variable heart_hrs "Heart Condition - core"
+label define heart_hrs 0 "No" 1 "Yes" 9 "Don't Know/Refused", modify
+label values heart_hrs heart_hrs
+
+/*CHF condition */
+//DONT HAVE
+
+/* Stroke condition */
+
+generate stroke_hrs = .
+replace stroke_hrs=0 if inlist(strok,0,4,5)
+replace stroke_hrs=1 if inlist(strok,1,2,3)
+label variable stroke_hrs "Stroke Condition - core"
+label define stroke_hrs 0 "No" 1 "Yes" 9 "Don't Know/Refused", modify
+label values stroke_hrs stroke_hrs
+
+/*Memory Disease */
+generate memory_hrs = .
+replace memory_hrs=0 if inlist(memry,0,4,5) if range(core_year, 1998,2008)
+replace memory_hrs=1 if inlist(memry,1,3) if range(core_year, 1998,2008)
+
+//NEED TO USE Z117 AS WELL FOR AFTER 2008
+
+replace memory_hrs=1 if alzhee==1 | demene==1 //reported having alzheimers or dementia EVER.
+
+//Using EVER had ALZ or DEM 
+/*Alzheimer's disease*/
+gen alz_hrs = .
+replace alz_hrs=alzhee
+la var alz_hrs "Alzheimer's disease - core, 2010-2014 only"
+
+/*Dementia*/
+gen dem_hrs = .
+replace dem_hrs=demene
+la var dem_hrs "Dementia - core, 2010-2012 only"
+
+/* Falls */
+/*DONT HAVE*/
+generate falls_hrs = .
+
+
+/** Incontinence
+generate incont_hrs = .
+DONT HAVE */
+
+/*Trouble with Pain 
+gen byte pain_hrs = .
+DONT HAVE */
+
+/*How bad is pain if yes above?
+gen pain_level_hrs = .
+DONT HAVE */
+
+/*Does pain limit activities?
+gen pain_limit_act_hrs = .
+DONT HAVE */
+
+/** HTN
+Ever had high blood pressure? */
+
+generate byte htn_hrs = .
+replace htn_hrs = 0 if inlist(hibp,0,4,5)
+replace htn_hrs = 1 if inlist(hibp,1,3)
+label var htn_hrs "Hypertension"
+tab htn_hrs core_year, missing
+
+/** Diabetes */
+generate byte dm_hrs = .
+replace dm_hrs = 0 if inlist(diab,0,4,5)
+replace dm_hrs = 1 if inlist(diab,1,3)
+
+/* Taking Insulin for Diabetes
+generate byte dm_ins_hrs = .
+DONT HAVE*/
+
+/*Kidney trouble due to diabetes
+generate byte dm_kidn_hrs = .
+DONT HAVE*/
+
+/** Psychiatric Condition ("doctor ever told... emotional, nervous or psychiatric problems?")*/
+generate byte psych_hrs  = .
+replace psych_hrs  = 0 if inlist(psych,0,4,5)
+replace psych_hrs  = 1 if inlist(psych,1,3)
+
+/*psych medications 1=yes 5 = no, only asked if reported having psych problems 
+
+gen byte PSYCH_treat = .
+
+
+gen byte PSYCH_med = .
+
+DONT HAVE*/
+
+
+/*
+gen core_year=1992 if wave==1
+
+local a 1994
+forvalues w=2/$w{
+replace core_year=`a' if wave==`w'
+di "`a'"
+local a=`a'+2
+}
+*/
+
+
+
+
+
+/*
+rename hhidpn hhidpn_o
+
+rename (*_r *_s) (*_1 *_2)
+
+unab mylist : *_2 
+
+foreach v of local mylist {
+	local stubs `"`stubs' `=substr("`v'",1,length("`v'")-2)'"'
+	}
+
+reshape long `stubs', i(hhidpn_o wave) j(spouse) string
+
+
+forvalues w=$w 
+
+unab mylist : *_r 
+
+foreach v of local mylist {
+	local stubs `"`stubs' `=substr("`v'",1,length("`v'")-2)'"'
+	}
+
+reshape long `stubs', i(hhidpn) j(spouse) string
+
+
+
+
+
+
+foreach w in 1{
+preserve
+keep hhidpn  *_`w'
+
+rename (*_r_`w' *_s_`w' *_`w') (*_r *_s *)
+
+}
+
+//save "${work}randwave_`w'", replace
+restore
+}
+
+
+
+
+/*
+forvalues w=1/$w{
+use "${work}randwave_`w'", replace
+unab mylist_`w' : *_r_`w' *_s_`w'
+
+
+foreach v of local mylist_`w' {
+	local stubs_`w' `"`stubs_`w'' `=substr("`v'",1,length("`v'")-2)'"'
+	}
+
+reshape long `stubs_`w'', i(hhidpn) j(year) string 
+
+save "${work}randwave_`w'_reshape", replace
+}
+*/
+
+reshape long `stubs', i(hhidpn) j(spouse) string
+
+
+unab mylist : *_2
+
+foreach v of local mylist{
+	local stubs `"`stubs' `=substr("`v'",1,length("`v'")-2)'"'
+	}
+
+
+forvalues w=$w(-1)1{
+di "`w'"
+rename (h`w'*) (*_`w')
+}
+
+reshape long `stubs', i(hhidpn) j(spouse) string
+
+//unabl mylist: *_*
+
+reshape long peninc_, i(hhidpn rors1) j(year)
+
+log close
+translate `name'.smcl `name'.pdf
+exit
+
+
+
+H="Change log"
+
+
+********************Change Log******************** 
+
+
+
+Updates:
+09/30/2019 MH
+------------
+
+Began cleaning and renaming to make consistent variables. 
+
+09/26/2019 MH
+------------
+Reshaping the HRS dataset to switch to long form for years and respondents/spouse. Renaming variables. Keeping years the individual is part of the survey. 
+
+09/23/2019 MH
+------------
+Began adding in file paths and filling out code template. 
+
+
+*/
+
+H="new"
+/*
+
+Created by: MH
+Date Created: 09/24/2019
+
+Updated by: MH
+Date Updated: 09/30/2019
+
+Description: HRS RAND file pull in and begin cleaning data
+
+
+**************************************************
+*/
+/*
+local date = subinstr("$S_DATE"," ","_",.) 
+local name 1-HRS_RAND_`date'
+di "`name'"
+
+capture log close 
+clear all
+
+set more off
+version 12
+set linesize 80
+set maxvar 20000
+
+
+log using "${logs}/`name'.smcl", text replace
+
+cd "${work}"
+
+***************************************************
+
+use "${randpath${year}}randhrs1992_${year}/*v1*/.dta", clear
+*/
+
+global w 13
+
+cd "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\working"
+
+use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\Rand downloads\randhrs1992_2016v2.dta", clear
+
+rename ra* *_ra
+
+forvalues w=$w(-1)1{
+di "`w'"
+rename (r`w'* s`w'* h`w'*) (*_r_`w' *_s_`w' *_h_`w')
+//rename (*_r *_s) (*_1 *_2)
+}
+rename hhidpn_ra id
+
+local a 1992
+forvalues w=1/$w{
+preserve
+keep hhidpn *_`w' *_ra
+rename (*_`w') (*)
+gen wave=`w'
+gen core_year=`a'
+tempfile wave_`w'
+save "`wave_`w''", replace
+restore
+local a=`a'+2
+}
+
+
+forvalues i=1/2{
+use "`wave_`i''", clear
+
+
+rename (hhidpn_s) (hhidpn_sp)
+
+foreach x in r s h{
+preserve
+keep hhidpn hhidpn_sp wave core_year *_`x' *_ra
+//the below rename is done because these are household vars that have the same name as respondent and spouse vars. Must make sure to not overwrite vars in the merge below, since the vars can measure two seperate things. 
+capture rename (sswrer_h sswrnr_h sswrxa_h oopmd_h oopmdf_h ifssi_h iirawy1_h iiraw_h ifiraw_h nhmliv_h)  (sswrer_hh sswrnr_hh sswrxa_hh oopmd_hh oopmdf_hh ifssi_hh iirawy1_hh iiraw_hh ifiraw_hh nhmliv_hh)
+
+rename (*_`x') (*) 
+
+gen spouse="`x'"
+
+tempfile `x'
+save ``x'', replace
+restore
+}
+
+use "`r'", clear
+//append using "`s'" -- we don't need spouses since they come in the respondents section. 
+merge m:1 hhidpn wave using "`h'", nogen
+
+rename *_ra *
+
+drop if proxy==. | proxy==.u
+
+save "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\Rand clean\rand_wave`i'.dta", replace 
+
+}
+
+
+
+use "`wave_3'", clear
+/*
+foreach x in walkr dress eat bath bed map{
+replace `x'_r=`x'_r+4 if inlist(`x'_r, 1,2,3,4)
+}
+*/
+
+forvalues w=4/$w{
+append using "`wave_`w''"
+}
+
+//first make vars into the same format across all waves. 1992 and 1994 have different answer choices than 1996-present
+
+// In 1992 "very difficult" and "can't do" is put into the same category (4), 
+/*
+foreach x in walkr dress eat bath bed toilt map phone meds money walks walk1 sit clims clim1 stoop arms push lift dime {
+	replace `x'_r=0 if `x'_r==1 & core_year==1992
+	replace `x'_r=1 if inlist(`x'_r, 2,3,4) & core_year==1992
+	
+	replace `x'_r=1 if inlist(`x'_r, 1,2,3,4,5) & core_year==1994
+}
+
+//
+foreach x in walkr dress eat bath bed toilt{
+	replace `x'h_r=1 if inlist(`x'h_r, 2,3) & core_year==1994
+	
+	replace `x'h_r=0 if `x'_r==0 & core_year>1994 & core_year!=.
+}
+
+foreach x in meals shop{
+replace `x'_r=`x'r_r  if core_year==1994
+}
+*/
+
+rename (hhidpn_s) (hhidpn_sp)
+
+foreach x in r s h{
+preserve
+keep hhidpn hhidpn_sp wave core_year *_`x' *_ra
+//the below rename is done because these are household vars that have the same name as respondent and spouse vars. Must make sure to not overwrite vars in the merge below, since the vars can measure two seperate things. 
+capture rename (sswrer_h sswrnr_h sswrxa_h oopmd_h oopmdf_h ifssi_h iirawy1_h iiraw_h ifiraw_h nhmliv_h)  (sswrer_hh sswrnr_hh sswrxa_hh oopmd_hh oopmdf_hh ifssi_hh iirawy1_hh iiraw_hh ifiraw_hh nhmliv_hh)
+
+rename (*_`x') (*) 
+
+gen spouse="`x'"
+
+tempfile `x'
+save ``x'', replace
+restore
+}
+
+use "`r'", clear
+//append using "`s'" -- we don't need spouses since they come in the respondents section. 
+merge m:1 hhidpn wave using "`h'", nogen
+
+rename *_ra *
+
+drop if proxy==. | proxy==.u
+
+save "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\Rand clean\rand_wave3_${w}.dta", replace 
+
+
+
+
+
+
+
+
+//Begin data cleaning
+
+label var proxy "Proxy Interview"
+label define proxy 0 "Not Proxy" 1 "Proxy"
+label values proxy proxy
+
+//gender
+gen female=. 
+replace female=0 if gender==1
+replace female=1 if gender==2
+label var female "Female"
+label define female 0 "Male" 1 "Female", modify
+label values female female
+
+note female: Female
+note female: HRS processing
+note female: 9/30/2019 MH
+
+// education
+
+replace educ=2 if educ==3
+replace educ=3 if educ==4
+replace educ=4 if educ==5
+label var educ "Education"
+label define educ 1 "< High School" 2 "GED/HS Graduate" 3 "Some College" 4 "College and above"
+label values educ educ
+
+note educ: Education level
+note educ: HRS processing
+note educ: 4/29/2020 MH
+
+gen marital=.
+replace marital=1 if inlist(mstat,1,2)
+replace marital=2 if mstat==4
+replace marital=3 if mstat==5
+replace marital=4 if mstat==7
+replace marital=5 if mstat==8
+replace marital=6 if inlist(mstat,3,6)
+
+// Hispanic Ethnicity
+
+gen hisp=hispan
+
+label define hisp 1 "Hispanic- yes" 0 "Non-Hispanic"
+label values hisp hisp
+
+// Religious Preference
+
+label define relig 1 "Protestant" 2 "Catholic" 3 "Jewish" 4 "No Pref" 5 "Other", modify
+label values relig relig
+
+//importance of religion
+//DONT HAVE
+
+
+//Good Friend
+//DONT HAVE
+
+
+//Social Visits
+//DONT HAVE
+
+//Overnight hospital stays
+
+gen hosp_last_2yr =hosp
+label variable hosp_last_2yr "Overnight hospitalization since previous core interview"
+label define hosp_last_2yr 0 "No" 1 "Yes", modify
+label values hosp_last_2yr hosp_last_2yr 
+
+//# of hospitalizations
+gen hosp_stays_2yr=hsptim
+la var hosp_stays_2yr "Number of hospitalizations since previous core ivw"
+tab hosp_stays_2yr core_year , missing
+
+//# of hospital nights 
+gen hosp_nights_2yr = hspnit
+la var hosp_nights_2yr "Number of nights in hospital since previous core ivw"
+tab hosp_nights_2yr core_year , missing
+
+//Insurance
+//Medicare
+
+gen medicare=govmr
+label variable medicare "Medicare, 1=yes"
+
+/////////Medicare PART B
+//ADD
+
+//Medicaid
+gen medicaid=govmd
+label variable medicaid "Medicaid, 1=yes"
+
+// HMO for Medicare / Medicaid coverage?
+// r2601
+// only asked if have medicare or medicaid
+//In Wave 11, due to a survey instrument glitch, only individuals covered by Medicaid and not Medicare were asked the premium questions. This results in a large number of .M=missing values for Wave 11.
+
+generate byte hmo = .
+replace hmo = 1 if !missing(mrprem) //yes
+replace hmo = 0 if mrprem==.n //no
+label variable hmo "HMO, 1=yes"
+
+//CHAMPUS
+gen champus=govva
+label variable champus "CHAMPUS, 1=yes"
+
+//Private Insurance
+gen private_ins=.
+replace private_ins=1 if !missing(prpcnt)
+replace private_ins=0 if prpcnt==0
+label variable private_ins "Private Insurance, 1=yes"
+
+
+//Medigap
+//same as private insurance?
+
+//LTC Insurance
+gen ltc_ins=hiltc
+label var ltc_ins "LTC Insurance, 1=yes"
+
+//LTC Benefits Received 
+//DON'T HAVE
+
+
+//Nursing Home Resident
+gen nhres=nhmliv
+label variable nhres "Nursing Home Resident"
+label define nhres 0 "No" 1 "Yes", modify
+label values nhres nhres
+
+// Nursing home residence currently - start month, year
+gen nhres_start_mo = nhmmvm
+la var nhres_start_mo "Start month for curr. NH residents"
+tab nhres_start_mo core_year, missing
+
+gen nhres_start_yr = nhmmvy
+la var nhres_start_yr "Start year for curr. NH residents"
+tab nhres_start_yr core_year, missing
+
+// Nursing Home in past 2 years
+gen nhres_2yr=nrshom
+label variable nhres_2yr "Nursing Home Resident in the past 2 years"
+label define nhres_2yr 0 "No" 1 "Yes", modify
+label values nhres_2yr nhres
+
+// Number of times in a nursing home in past 2 years - core interview
+//nh_stays DONT HAVE
+
+
+gen nh_start=mdy(nhmmvm,1,nhmmvy)
+
+//NH NIGHTS 
+//DONT HAVE
+//gen nh_nights
+
+//NH Months
+//DONT HAVE
+//gen nh_mos
+
+//NH insurance
+//DONT HAVE
+
+//Spouse lives with Respondent
+//DONT HAVE
+//gen resspouse
+
+//Number of household members
+gen hhm=hhres
+replace hhm=. if hhres==.m
+label variable hhm "Number of Household Members"
+
+//Number of Children
+rename child child_all
+gen child=evbrn
+label variable child "Number of Children, not their children's spouses"
+
+//Number of Grand Children
+//DONT HAVE
+
+//Number of Children including step-children excl. grand children
+label var child_all "Number of Children, including step-children excl. Grandchildren"
+
+//Number of all children including grandchildren
+//DONT HAVE 
+//gen allchil
+
+//Number of Resident Children
+//DONT HAVE 
+//gen reschild
+
+//Self-reported Health
+gen srh=shlt
+label var srh "Self Rated Health"
+label define srh 1 "Excellent" 2 "Very Good" 3 "Good" 4 "Fair" 5 "Poor"
+label val srh srh
+
+//cesd1 - depressed in the last week
+gen cesd1 = depres
+la var cesd1 "CESD - Depressed in last week"
+
+//cesd2 - felt activities were effort in the last week
+gen cesd2 = effort
+la var cesd2 "CESD - Activities were effort in last week"
+
+
+//cesd3 - restless sleep in the last week
+gen cesd3 = sleepr
+la var cesd3 "CESD - Restless Sleep in last week"
+tab cesd3 core_year,missing
+
+//cesd4 - was happy in the last week
+//this one is reversed 0 = was happy 1 = was not happy
+gen cesd4 = whappy
+la var cesd4 "CESD - Was not happy in last week"
+
+//cesd5 - lonely in the last week
+gen cesd5 = flone
+la var cesd5 "CESD - Lonely in last week"
+tab cesd5 core_year,missing
+
+//cesd6 - enjoyed life in the last week
+gen cesd6 = enlife
+la var cesd6 "CESD - Did not enjoy life in last week"
+tab cesd6 core_year,missing
+
+//cesd7 - felt sad in the last week
+gen  cesd7 = fsad
+la var cesd7 "CESD - Sad in last week"
+tab cesd7 core_year,missing
+
+//cesd8 - unmotivated in the last week
+gen byte cesd8 = going
+la var cesd8 "CESD - Unmotivated in last week"
+tab cesd8 core_year,missing
+
+//ever drink alcohol
+gen ever_drink =drink
+la var ever_drink "Ever drink alcoholic beverages"
+tab ever_drink core_year,missing
+
+//days per week drink
+gen days_drink = drinkd
+la var days_drink "Days per week drink alcoholic beverages"
+tab days_drink core_year,missing
+
+//number of drinks per day, coded to 0 if don't drink, . if missing
+//different from how Ling had it initally coded where . = missing or don't drink (not asked)
+gen n_drinks_3m = drinkn
+la var n_drinks_3m "Number of alcoholic drinks per day"
+tab n_drinks_3m core_year, missing
+
+// Ever smoked?
+gen smoke_ever=smokev
+la var smoke_ever "Ever smoked?"
+tab smoke_ever core_year, missing
+
+// Currently smoke
+gen smoke_curr=smoken
+la var smoke_curr "Currently smoke cigarettes?"
+tab smoke_curr core_year,missing
+
+//Vigourous exercise
+gen vig_phy_act=.
+replace vig_phy_act=0 if inlist(vgactf,3,4,5)
+replace vig_phy_act=1 if inlist(vgactf,1,2)
+la var vig_phy_act "Vigorous physical activity more than 1x per week"
+
+//Current Weight, pounds, asked every interview
+gen wgt_curr=weight*2.205
+la var wgt_curr "Weight current wave, in pounds"
+
+//Current height, ft, only asked in first interview.
+gen height_ft_temp=height*3.281
+la var height_ft_temp "Height, feet"
+
+//Current height, ft, only asked in first interview.
+gen height_in_temp=height*39.37
+la var height_in_temp "Height, Inches"
+
+// Hours spent helping relatives or friends
+//gen help_friends = .
+
+//END part1
+
+//ADLS
+local a dr wk bh e tx t
+local b dress walkr bath eat bed toilt
+local c dressh walkrh bathh eath bedh toilth
+local d dressing walking bathing eating transferring toileting
+
+local n: word count `a'
+
+forvalues i=1/`n'{
+	local f : word `i' of `a'
+	local g : word `i' of `b'
+	local h : word `i' of `c'
+	local j : word `i' of `d'
+	
+	//Difficulty
+	gen adl_diff_`f'=.
+	replace adl_diff_`f'=0 if inlist(`g',0)
+	replace adl_diff_`f'=1 if inlist(`g',1,2)
+	la var adl_diff_`f' "Difficulty `d' 1=yes"
+	
+	//Help
+	gen adl_`f'_core =.
+	replace adl_`f'_core =0 if `h'==0
+	replace adl_`f'_core =0 if inlist(`h',1,2,3)
+	label variable adl_`f'_core "Help `j' - Core int."
+	label define adl_`f'_core 0 "No" 1 "Yes", modify
+	label values adl_`f'_core adl_`f'_core
+}
+
+
+gen adl_equip_wk = .
+replace adl_equip_wk = 1 if walkre==1 
+replace adl_equip_wk = 0 if walkre==0
+la var adl_equip_wk "Use equipment to walk? 1=yes"
+tab adl_equip_wk core_year, missing
+
+gen byte adl_equip_tx = .
+replace adl_equip_tx = 1 if bede==1
+replace adl_equip_tx = 0 if bede==0
+la var adl_equip_tx "Use equipment transfers to bed? 1=yes"
+tab adl_equip_tx core_year, missing
+
+
+//IADLS 
+
+local a map mp gr ph rx m
+local b map meals shop phone meds money
+local c "reading maps" "meal prep" "grocery shopping"  "phone calls" "taking medication" "managing money"
+
+local n: word count `a'
+
+forvalues i=1/`n'{
+	local f : word `i' of `a'
+	local g : word `i' of `b'
+	local j : word `i' of "`c'"
+	
+	//Difficulty
+	gen iadl_diff_`f'=.
+	replace iadl_diff_`f'=0 if inlist(`g',0)
+	replace iadl_diff_`f'=1 if inlist(`g',1,2)
+	la var iadl_diff_`f' "Difficulty with `j' 1=yes"
+}
+	
+	
+//DONT HAVE IADL HELP INDICATORS
+
+
+//Functional limitations from core interviews
+
+local a wk_many wk_one sit sta_many sta_one stp reach push lift dime
+local b walks walk1 sit clims clim1 stoop arms push lift dime
+local c "walking several blocks" "walking one block" "sitting 2 hours" "climbing stairs - many flights" "climbing stairs - one flight" "stooping" "reaching with arms" "pushing/pulling large objects" "lifting weights over 10lbs" "picking up a dime"
+
+local n: word count `a'
+
+forvalues i=1/`n'{
+	local f : word `i' of `a'
+	local g : word `i' of `b'
+	local j : word `i' of "`c'"
+	
+	//Function difficulty
+	gen fl_diff_`f'=.
+	replace fl_diff_`f'=0 if inlist(`g',0)
+	replace fl_diff_`f'=1 if inlist(`g',1,2)
+	la var fl_diff_`f' "Difficulty `j' 1=yes"
+}
+
+//ADL HELPERS
+//DONT HAVE
+
+
+//IADL HELPERS
+//DONT HAVE
+
+// Home health worker
+// Nursing home residents are not asked this question, and so their answers are set to missing.
+gen hh_worker=.
+replace hh_worker=homcar if nhres==0
+la var hh_worker "Home health worker help? 1=yes"
+
+//Part 3
+
+/* Comorbidities from core interviews  */
+/*Cancer treatment - HRS core*/
+
+gen cancer_hrs=.
+replace cancer_hrs=0 if inlist(cancr,0,4,5)
+replace cancer_hrs=1 if inlist(cancr,1,3)
+label variable cancer_hrs "Cancer - core"
+label define cancer_hrs 0 "No" 1 "Yes", modify
+label values cancer_hrs cancer_hrs
+
+/*Cancer treatment vars*/
+/*DONT HAVE */
+
+
+/* Lung Disease */
+
+gen lung_hrs=.
+replace lung_hrs=0 if inlist(lung,0,4,5)
+replace lung_hrs=1 if inlist(lung,1,3)
+label variable lung_hrs "Lung Disease - core"
+label define lung_hrs 0 "No" 1 "Yes" , modify
+label values lung_hrs lung_hrs
+
+/* Lung condtion vars */
+
+/* Heart Conditions */
+generate heart_hrs = .
+replace heart_hrs=0 if inlist(heart,0,4,5)
+replace heart_hrs=1 if inlist(heart,1,3)
+label variable heart_hrs "Heart Condition - core"
+label define heart_hrs 0 "No" 1 "Yes" 9 "Don't Know/Refused", modify
+label values heart_hrs heart_hrs
+
+/*CHF condition */
+//DONT HAVE
+
+/* Stroke condition */
+
+generate stroke_hrs = .
+replace stroke_hrs=0 if inlist(strok,0,4,5)
+replace stroke_hrs=1 if inlist(strok,1,2,3)
+label variable stroke_hrs "Stroke Condition - core"
+label define stroke_hrs 0 "No" 1 "Yes" 9 "Don't Know/Refused", modify
+label values stroke_hrs stroke_hrs
+
+/*Memory Disease */
+generate memory_hrs = .
+replace memory_hrs=0 if inlist(memry,0,4,5) if range(core_year, 1998,2008)
+replace memory_hrs=1 if inlist(memry,1,3) if range(core_year, 1998,2008)
+
+//NEED TO USE Z117 AS WELL FOR AFTER 2008
+
+replace memory_hrs=1 if alzhee==1 | demene==1 //reported having alzheimers or dementia EVER.
+
+//Using EVER had ALZ or DEM 
+/*Alzheimer's disease*/
+gen alz_hrs = .
+replace alz_hrs=alzhee
+la var alz_hrs "Alzheimer's disease - core, 2010-2014 only"
+
+/*Dementia*/
+gen dem_hrs = .
+replace dem_hrs=demene
+la var dem_hrs "Dementia - core, 2010-2012 only"
+
+/* Falls */
+/*DONT HAVE*/
+generate falls_hrs = .
+
+
+/** Incontinence
+generate incont_hrs = .
+DONT HAVE */
+
+/*Trouble with Pain 
+gen byte pain_hrs = .
+DONT HAVE */
+
+/*How bad is pain if yes above?
+gen pain_level_hrs = .
+DONT HAVE */
+
+/*Does pain limit activities?
+gen pain_limit_act_hrs = .
+DONT HAVE */
+
+/** HTN
+Ever had high blood pressure? */
+
+generate byte htn_hrs = .
+replace htn_hrs = 0 if inlist(hibp,0,4,5)
+replace htn_hrs = 1 if inlist(hibp,1,3)
+label var htn_hrs "Hypertension"
+tab htn_hrs core_year, missing
+
+/** Diabetes */
+generate byte dm_hrs = .
+replace dm_hrs = 0 if inlist(diab,0,4,5)
+replace dm_hrs = 1 if inlist(diab,1,3)
+
+/* Taking Insulin for Diabetes
+generate byte dm_ins_hrs = .
+DONT HAVE*/
+
+/*Kidney trouble due to diabetes
+generate byte dm_kidn_hrs = .
+DONT HAVE*/
+
+/** Psychiatric Condition ("doctor ever told... emotional, nervous or psychiatric problems?")*/
+generate byte psych_hrs  = .
+replace psych_hrs  = 0 if inlist(psych,0,4,5)
+replace psych_hrs  = 1 if inlist(psych,1,3)
+
+/*psych medications 1=yes 5 = no, only asked if reported having psych problems 
+
+gen byte PSYCH_treat = .
+
+
+gen byte PSYCH_med = .
+
+DONT HAVE*/
+
+
+/*
+gen core_year=1992 if wave==1
+
+local a 1994
+forvalues w=2/$w{
+replace core_year=`a' if wave==`w'
+di "`a'"
+local a=`a'+2
+}
+*/
+
+
+
+
+
+/*
+rename hhidpn hhidpn_o
+
+rename (*_r *_s) (*_1 *_2)
+
+unab mylist : *_2 
+
+foreach v of local mylist {
+	local stubs `"`stubs' `=substr("`v'",1,length("`v'")-2)'"'
+	}
+
+reshape long `stubs', i(hhidpn_o wave) j(spouse) string
+
+
+forvalues w=$w 
+
+unab mylist : *_r 
+
+foreach v of local mylist {
+	local stubs `"`stubs' `=substr("`v'",1,length("`v'")-2)'"'
+	}
+
+reshape long `stubs', i(hhidpn) j(spouse) string
+
+
+
+
+
+
+foreach w in 1{
+preserve
+keep hhidpn  *_`w'
+
+rename (*_r_`w' *_s_`w' *_`w') (*_r *_s *)
+
+}
+
+//save "${work}randwave_`w'", replace
+restore
+}
+
+
+
+
+/*
+forvalues w=1/$w{
+use "${work}randwave_`w'", replace
+unab mylist_`w' : *_r_`w' *_s_`w'
+
+
+foreach v of local mylist_`w' {
+	local stubs_`w' `"`stubs_`w'' `=substr("`v'",1,length("`v'")-2)'"'
+	}
+
+reshape long `stubs_`w'', i(hhidpn) j(year) string 
+
+save "${work}randwave_`w'_reshape", replace
+}
+*/
+
+reshape long `stubs', i(hhidpn) j(spouse) string
+
+
+unab mylist : *_2
+
+foreach v of local mylist{
+	local stubs `"`stubs' `=substr("`v'",1,length("`v'")-2)'"'
+	}
+
+
+forvalues w=$w(-1)1{
+di "`w'"
+rename (h`w'*) (*_`w')
+}
+
+reshape long `stubs', i(hhidpn) j(spouse) string
+
+//unabl mylist: *_*
+
+reshape long peninc_, i(hhidpn rors1) j(year)
+
+log close
+translate `name'.smcl `name'.pdf
+exit
+

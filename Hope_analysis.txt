@@ -1,0 +1,944 @@
+= V4 Outline MultiLine NoSorting TabWidth=30
+
+H="First Heading"
+/* 
+********************HEADING******************** 
+
+Project Name: Climate Change
+
+Date Started: 3/2019
+
+Primary Investigator: Laura Gelfman
+
+Created by: MH
+
+Primary Analyst: MH
+Secondary Analyst:
+
+
+Simple Outline:
+
+
+*/
+ 
+//STATA
+// Global Macros use $ symbol to be called. 
+
+//Intermediate Data Path
+global intpath "E:\nhats\data\Projects\..."
+
+// Final Data Path
+gloabl datapath "E:\nhats\data\Projects\..."
+
+//Log files path
+gloabl logpath "E:\nhats\data\Projects\..."
+
+
+SAS 
+
+
+//Intermediate Data Path
+libname intpath "E:\nhats\data\Projects\..."
+
+// Final Data Path
+libname datapath "E:\nhats\data\Projects\..."
+
+//Log files path
+libname logpath "E:\nhats\data\Projects\..."
+
+
+H="Hope Analysis with Redcap data"
+/*
+
+Created by: Mohammed 
+Date Created: 10/22/2020
+
+Updated by:
+Date Updated:
+
+Description: What is going on in this section of the code? 
+i.e. defining variables, labeling variables. Creating new quartiles for income based off of something....
+
+
+
+**************************************************
+*/
+
+
+//should make dataset either long or wide. 
+
+import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\intervention_patients.xlsx", sheet("Sheet1") firstrow case(lower) clear
+drop if mrn==.
+
+tostring mrn, replace
+tempfile interv
+save `interv'
+
+
+import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\PCaH Study ID.xlsx", sheet("Sheet1") firstrow case(lower) clear
+
+tempfile id
+save `id'
+
+import delimited "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\MountSinaiPalliative_DATA_2020-10-19_1133.csv", clear
+
+rename study_id_1 studyid
+
+merge m:1 studyid using "`id'", keep(matched) nogen
+
+merge m:1 mrn using "`interv'", keep(master matched) gen(inter)
+//12 people in intervention and not in study. Possibly trial people
+replace inter=0 if inter==1
+replace inter=1 if inter==3
+
+
+codebook studyid
+// 137 unique people matched. 
+
+tab baseline_interview_patient_compl
+
+foreach x in 6w 12w 24w{
+gen interview_patient_compl_`x'=.
+replace interview_patient_compl_`x'=2
+}
+
+
+rename pt_availability_to_pt_famcare_* pt_avail_to_pt_famcare_*
+rename pt_avail_to_pt_famcare_12 pt_avail_to_pt_famcare_12w
+
+foreach a in bl 6w 12w 6m{
+
+foreach x of varlist ipos_pain_`a'-ipos_poor_mobility_`a'{
+replace `x'=. if inlist(`x',777, 888,999)
+}
+
+foreach x of varlist pt_symptoms_famcare_`a'-pt_avail_to_pt_famcare_`a'{
+replace `x'=. if inlist(`x',777, 888,999)
+}
+
+foreach x of varlist overall_qol_mcgill_`a'-supported_mcgill_`a' {
+replace `x'=. if inlist(`x',777, 888,999)
+}
+}
+
+//reverse coded so 10 is bad; 0 is good. 
+foreach x in overall_qol_mcgill_bl overall_qol_mcgill_6w overall_qol_mcgill_12w overall_qol_mcgill_6m meaning_mcgill_bl meaning_mcgill_6w meaning_mcgill_12w meaning_mcgill_6m fulfilment_mcgill_bl fulfilment_mcgill_6w fulfilment_mcgill_12w fulfilment_mcgill_6m self_worth_mcgill_bl self_worth_mcgill_6w self_worth_mcgill_12w self_worth_mcgill_6m communication_mcgill_bl communication_mcgill_6w communication_mcgill_12w communication_mcgill_6m relationships_mcgill_bl relationships_mcgill_12w relationships_mcgill_6w relationships_mcgill_6m supported_mcgill_bl supported_mcgill_6w supported_mcgill_12w supported_mcgill_6m{
+replace `x'=10-`x'
+}
+
+foreach x in bl 6w 12w 6m{
+egen ipos_`x'_mis=rowmiss(ipos_pain_`x'-ipos_poor_mobility_`x')
+egen famcare_`x'_mis=rowmiss(pt_symptoms_famcare_`x'-pt_avail_to_pt_famcare_`x')
+egen mcgill_`x'_mis=rowmiss(overall_qol_mcgill_`x'-supported_mcgill_`x')
+
+egen ipos_`x'_mean=rowmean(ipos_pain_`x'-ipos_poor_mobility_`x' )
+egen famcare_`x'_mean=rowmean(pt_symptoms_famcare_`x'-pt_avail_to_pt_famcare_`x')
+egen mcgill_`x'_mean=rowmean(overall_qol_mcgill_`x'-supported_mcgill_`x')
+
+}
+
+
+foreach a in bl 6w 12w 6m{
+
+foreach x of varlist ipos_pain_`a'-ipos_poor_mobility_`a'{
+replace `x'=ipos_`a'_mean if ipos_`a'_mis<6 & `x'==.
+replace `x'=. if ipos_`a'_mis>=6
+}
+
+foreach x of varlist pt_symptoms_famcare_`a'-pt_avail_to_pt_famcare_`a'{
+replace `x'=famcare_`a'_mean if famcare_`a'_mis<6 & `x'==.
+replace `x'=. if famcare_`a'_mis>=6
+}
+
+foreach x of varlist overall_qol_mcgill_`a'-supported_mcgill_`a' {
+replace `x'=mcgill_`a'_mean if mcgill_`a'_mis<8 & `x'==.
+replace `x'=. if mcgill_`a'_mis>=8
+}
+}
+
+foreach a in bl 6w 12w 6m{
+egen ipos_`a'=rowtotal( ipos_pain_`a'-ipos_poor_mobility_`a'), m
+
+egen famcare_`a'=rowtotal(pt_symptoms_famcare_`a'-pt_avail_to_pt_famcare_`a'), m
+
+egen mcgill_`a'=rowtotal(overall_qol_mcgill_`a'-supported_mcgill_`a'), m
+}
+
+sort studyid
+foreach x in ipos famcare mcgill{
+egen max_`x'_bl=total(`x'_bl), by(studyid)
+gen dif_`x'_6w=`x'_6w-max_`x'_bl
+gen dif_`x'_12w=`x'_12w-max_`x'_bl
+gen dif_`x'_6m=`x'_6m-max_`x'_bl
+}
+
+
+tempfile cohort
+save `cohort'
+
+
+//table 1--interviews
+
+drop if redcap_event_name=="6_week_interview_arm_2" | redcap_event_name== "enrollment_intervi_arm_2"
+
+gen n=1
+
+
+mat tab=J(5,2,.)
+local r=1
+local c=1
+
+forvalues i=0/1{
+	foreach x in enrollment_intervi_arm_1 6_week_interview_arm_1 3_month_interview_arm_1 6_month_interview_arm_1 {
+		sum n if redcap_event_name=="`x'" & inter==`i'
+		mat tab[`r',`c']=r(N)
+		local r=`r'+1
+}
+	sum n if inter==`i'
+	mat tab[`r',`c']=r(N)
+	local c=`c'+1
+	local r=1
+}
+
+mat rownames tab= "Enrollment interview" "6-week interview" "3-month interview" "6-month interview" "Total"
+mat colnames tab="Control" "Intervention"
+
+mat list tab
+
+frmttable using "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\Hope_tables.rtf", replace statmat(tab) title("Table 1: Number of Interviews Conducted") varlabels sdec(0)
+
+preserve
+keep if redcap_event_name=="enrollment_intervi_arm_1"
+
+replace pt_sex_bl=pt_sex_bl-1
+label define pt_sex_bl 0 "male" 1 "female"
+label values pt_sex_bl pt_sex_bl 
+
+gen hispanic=0 if pt_ethnicity_bl==2
+replace hispanic=1 if pt_ethnicity_bl==1
+
+gen live_alone=0 if inlist(pt_living_status_bl,2,3)
+replace live_alone=1 if pt_living_status_bl==1
+
+gen hs_educ=0 if inlist(pt_education_bl,1,2)
+replace hs_educ=1 if inlist(pt_education_bl,3,4,5,6)
+
+replace age_65=0 if age_65==2
+
+//table 2
+local cvars1 age_enrollment
+local ivars1 age_65 pt_sex_bl pt_race_bl___1 pt_race_bl___2 pt_race_bl___3 pt_race_bl___4 pt_race_bl___5 pt_race_bl___6 hispanic
+
+local cvars2 ipos_pain_bl ipos_sob_bl ipos_weakness_bl ipos_nausea_bl ipos_vomiting_bl ipos_anorexia_bl ipos_constipation_bl ipos_dry_mouth_bl ipos_drowsiness_bl ipos_poor_mobility_bl ipos_bl
+
+local cvars3 pt_symptoms_famcare_bl pt_availability_famcare_bl pt_coordination_famcare_bl pt_diagnosis_famcare_bl pt_family_involved_famcare_bl pt_pain_ed_famcare_bl pt_tests_info_famcare_bl pt_symptom_ax_famcare_bl pt_follow_up_famcare_bl pt_avail_to_pt_famcare_bl famcare_bl
+
+local cvars4 overall_qol_mcgill_bl physical_symptoms_mcgill_bl physical_well_mcgill_bl physical_func_mcgill_bl depressed_mcgill_bl anxiety_mcgill_bl sad_mcgill_bl afraid_future_mcgill_bl meaning_mcgill_bl fulfilment_mcgill_bl control_mcgill_bl self_worth_mcgill_bl communication_mcgill_bl relationships_mcgill_bl supported_mcgill_bl mcgill_bl
+
+ local rn : word count 1 `cvars1' `ivars1' `cvars2' `cvars3' `cvars4' 
+mat tab=J(`rn',4,.)
+mat stars=J(`rn',4,0)
+local r=1
+local c=1
+
+forvalues i=0/1{
+	foreach x in `cvars1'{
+		sum `x' if inter==`i'
+		mat tab[`r',`c']=r(N)
+		mat tab[`r',`c'+1]=r(mean)
+		reg `x' inter
+		test inter
+		mat stars[`r',4]=(r(p)<.01) + (r(p)<.05)
+		local r=`r'+1
+	}
+	
+	foreach x in `ivars1'{
+		sum `x' if inter==`i'
+		mat tab[`r',`c']=r(N)
+		mat tab[`r',`c'+1]==r(mean)*100
+		tab `x' inter, chi2
+		mat stars[`r',4]=(r(p)<.01) + (r(p)<.05)
+		local r=`r'+1
+	}
+	
+	foreach x in `cvars2' `cvars3' `cvars4'{
+		sum `x' if inter==`i'
+		mat tab[`r',`c']=r(N)
+		mat tab[`r',`c'+1]=r(mean)
+		reg `x' inter
+		test inter
+		mat stars[`r',4]=(r(p)<.01) + (r(p)<.05)
+		local r=`r'+1
+	}
+	
+	sum n if inter==`i'
+	mat tab[`r',`c']==r(N)
+	local r=1
+	local c=`c'+2
+}
+
+mat rownames tab="Age" "<65" "Female" "Asian" "Black" "White" "Native Hawaiian/Pacific Islander" "American Indian or Alaska Native" "Other" "Hispanic" "IPOS: Pain" "IPOS: Shortness of breath" "IPOS: Weakness or lack of energy" "IPOS: Nausea" "IPOS: Vomiting" "IPOS: Poor appetite" "IPOS: Constipation" "IPOS: Sore or dry mouth" "IPOS: Drowsiness" "IPOS: Poor mobility" "IPOS: Total Score" "Famcare: Attention to Symptoms" "Famcare: Availability of care team" "Famcare: Care Coordination" "Famcare:Time Needed for Diagnosis" "Famcare: Family included in Decisions" "Famcare: Information given to Manage Pain" "Famcare: Information about Tests" "Famcare: Assessment of Symptoms" "Famcare: Followup of Tests/Treatment" "Famcare: Availability of Healthcare Team" "Famcare: Total Score" "Mcgill: Overall QOL" "Mcgill: Physical Symptoms" "Mcgill: Physical Well" "Mcgill: Function" "Mcgill: Depressed" "Mcgill: Anxiety" "Mcgill: Sad" "Mcgill: Afraid of Future" "Mcgill: Meaning" "Mcgill: Fulfillment" "Mcgill: Control" "Mcgill: Self-worth" "Mcgill: Communication" "Mcgill: Relationships" "Mcgill: Supported" "Mcgill: Total Score" "N"
+
+
+mat colnames tab="Control, N" "Control, Mean/%" "Intervention, N" "Intervention, Mean/%"
+mat list tab 
+
+frmttable using "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\Hope_tables.rtf", replace statmat(tab) title("Table 2: Baseline Characteristics") varlabels sdec(2) annotate(stars) asymbol(*,**) addtable note("* p<0.05; ** p<0.01" "Mcgill is reverse coded, higher is a poorer outcome")
+
+restore
+//table 3
+
+local cvars dif_ipos_6w dif_ipos_12w dif_ipos_6m dif_famcare_6w dif_famcare_12w dif_famcare_6m dif_mcgill_6w dif_mcgill_12w dif_mcgill_6m
+
+local rn : word count `cvars' 
+mat tab=J(`rn',5,.)
+mat stars=J(`rn',5,0)
+local r=1
+local c=1
+
+forvalues i=0/1{
+	foreach x in `cvars' {
+		sum `x' if inter==`i'
+		mat tab[`r',`c']=r(N)
+		mat tab[`r',`c'+1]=r(mean)
+		reg `x' inter
+		test inter
+		mat stars[`r',4]=(r(p)<.01) + (r(p)<.05)
+		local r=`r'+1
+}
+	local c=`c'+2
+	local r=1
+}
+
+local r=1 
+local c=5
+foreach x in `cvars' {
+		sum `x' if inter==0
+		local control=r(mean)
+		sum `x' if inter==1
+		local inter=r(mean)
+		mat tab[`r',`c']=`inter'-`control'
+		local r=`r'+1
+}
+
+
+mat rownames tab= "IPOS 6-week" "IPOS 3-month" "IPOS 6-month" "Famcare 6-week" "Famcare 3-month" "Famcare 6-month" "Mcgill 6-week" "Mcgill 3-month" "Mcgill 6-month"  
+mat colnames tab="Control, N" "Control, Mean" "Intervention, N" "Intervention, Mean" "Difference"
+
+mat list tab
+
+frmttable using "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\Hope_tables.rtf", replace statmat(tab) title("Table 3: Differences in Scores") varlabels sdec(2) annotate(stars) asymbol(*,**) addtable note("* p<0.05; ** p<0.01" "Differences calculated by subtracting interview from baseline" "Difference Column subtracting control from intervention." "Mcgill is reverse coded, higher is a poor outcome" )
+
+H="data warehouse pull--first pull"
+import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\PCaH Study ID.xlsx", sheet("Sheet1") firstrow case(lower) clear
+
+tempfile id
+save `id'
+
+import delimited "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\MountSinaiPalliative_DATA_2020-10-19_1133.csv", clear
+
+rename study_id_1 studyid
+
+merge m:1 studyid using "`id'", keep(matched) nogen
+
+keep studyid redcap_event_name consent_date mrn pt_bl_interview_date
+
+keep if redcap_event_name=="enrollment_intervi_arm_1" 
+
+rename consent_date consent_date1
+
+gen interview_date=date(pt_bl_interview_date, "YMD")
+format %td interview_date
+drop pt_bl_interview_date
+
+gen consent_date=date(consent_date1, "YMD")
+format %td consent_date
+drop consent_date1
+
+gen start_date=consent_date-183
+format %td start_date
+
+export excel using "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\consent.xls", firstrow(variables) replace
+
+H="data warehouse-second pull"
+ import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\Hope - Randomization outcome and MRN cleaning.xlsx", sheet("Sheet1") firstrow case(lower) allstring clear
+
+gen consent_date=date(consentdate, "MDY")
+format %td consent_date
+drop consentdate
+
+gen start_date=consent_date-183
+format %td start_date
+ 
+ keep mrn studyid consent_date start_date
+ 
+ drop if mrn==""
+ 
+ codebook mrn
+ 
+ export excel using "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\consent_full_193.xls", firstrow(variables) replace
+
+ 
+
+
+H="****************************"
+
+
+H="Encounter data"
+/* First we merge together all the redcap and clinical information*/
+
+
+import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\intervention_patients.xlsx", sheet("Sheet1") firstrow case(lower) allstring clear
+drop if mrn==""
+
+
+tempfile intervention
+save `intervention'
+
+import delimited "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\MountSinaiPalliative_DATA_2020-10-19_1133.csv", clear 
+keep if redcap_event_name=="enrollment_intervi_arm_1"
+
+rename study_id studyid
+tostring studyid, replace
+tempfile bl_char
+save `bl_char'
+
+import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\consent.xls", sheet("Sheet1") firstrow case(lower) allstring clear 
+
+merge 1:1 studyid using "`bl_char'", nogen
+
+gen female=0
+replace female=1 if pt_sex_bl==2
+
+gen consent_dt=date(consent_date, "MDY")
+format consent_dt %td
+
+merge 1:1 mrn using `intervention', gen(intervention)
+//62 are in the intervention group
+replace intervention=0 if intervention==1
+replace intervention=1 if intervention==3
+
+tempfile base
+save `base'
+
+
+/* Then merge together all data warehouse information */
+
+use "J:\Geriatrics\PCare\HoPe Project\MSD-1049\Data-MSDW-1236\Billing.dta", clear
+
+collapse (sum) act_tot_cost act_tot_charges act_var_dir_cost act_fix_dir_cost act_var_indir_cost act_fix_indir_cost, by(mrn pat_enc_csn_id)
+
+tempfile billing
+save `billing'
+
+use "J:\Geriatrics\PCare\HoPe Project\MSD-1049\Data-MSDW-1236\encounter.dta", clear
+sort mrn pat_enc_csn_id
+
+split encounter_date
+gen enc_date=date(encounter_date1, "MDY")
+format enc_date %td
+drop encounter_date1 encounter_date2 encounter_date3
+
+split discharge_date
+gen disch_date=date(discharge_date1, "MDY")
+format disch_date %td
+drop discharge_date1 discharge_date2 discharge_date3
+
+gen days= disch_date-enc_date 
+
+rename primary_enc_dx_icd10 icd10_code
+
+tempfile encounter
+save `encounter'
+
+
+use  "J:\Geriatrics\PCare\HoPe Project\MSD-1049\Data-MSDW-1236\enc_diagnosis.dta", clear
+
+split encounter_date
+gen enc_date=date(encounter_date1, "MDY")
+format enc_date %td
+drop encounter_date1 encounter_date2 encounter_date3
+
+
+keep if primary_dx=="Y"
+//all dups have different icd codes, but the same diagnosis name. 
+duplicates report mrn pat_enc_csn_id icd10_code
+duplicates tag mrn pat_enc_csn_id diagnosis_name, gen(a)
+duplicates tag mrn pat_enc_csn_id, gen(b)
+tab a b
+
+drop a b
+
+duplicates drop mrn pat_enc_csn_id diagnosis_name, force
+
+merge 1:1 mrn pat icd10_code using "`encounter'", nogen
+
+merge m:1 mrn pat_enc_csn_id using "`billing'"
+
+
+
+//Then we merge together all 
+
+merge m:1 mrn using "`base'", keep(matched) nogen
+
+
+replace days=1 if days<=0
+replace days=30 if days>30 & days!=.
+ 
+
+ gen post_consent=1 if enc_date-consent_dt>0
+ 
+//1 year before consent.  
+preserve
+
+keep if consent_dt-enc_date<=365 & consent_dt-enc_date>=0
+
+duplicates drop mrn pat_enc_csn_id, force
+
+foreach x in ed ambulatory icu{
+bys mrn: egen total_`x'=total(`x')
+bys mrn: egen total_`x'_days=total(days) if `x'==1
+}
+
+foreach x in act_tot_cost act_tot_charges act_var_dir_cost act_fix_dir_cost act_var_indir_cost act_fix_indir_cost{
+bys mrn: egen total_`x'=total(`x')
+sum total_`x'
+}
+
+
+duplicates drop mrn, force
+
+foreach x in ed ambulatory icu{
+gen flag_`x'=0
+replace flag_`x'=1 if total_`x'>0 & !missing(total_`x')
+}
+ 
+label var flag_ambulatory "Any Ambulatory vist, %"
+label var flag_ed "Any ED vist, %"
+label var flag_icu "Any ICU vist, %"
+
+label var total_ambulatory "Total Ambulatory visits"
+label var total_ed "Total ED visits"
+label var total_icu "Total ICU visits"
+
+label var total_ambulatory_days "Total Ambulatory days"
+label var total_ed_days "Total ED days"
+label var total_icu_days "Total ICU days"
+
+
+label var total_act_tot_cost "Total Cost"
+label var total_act_tot_charges "Total Charges"
+
+
+
+
+local ivars flag_ambulatory flag_ed flag_icu
+local cvars total_ambulatory total_ed total_icu total_ambulatory_days total_ed_days total_icu_days total_act_tot_cost total_act_tot_charges
+
+gen n=1 
+
+local rn : word count 1 `ivars' `cvars'
+mat tab=J(`rn',8,.)
+mat stars=J(`rn',8,0)
+local r=1
+local c=1
+
+forvalues i=0/1{
+
+	foreach x in `ivars'{
+		sum `x' if intervention==`i'
+		mat tab[`r',`c']=r(N)*r(mean)
+		mat tab[`r',`c'+1]==r(mean)*100
+		tab `x' intervention, chi2
+		mat stars[`r',4]=(r(p)<.01) + (r(p)<.05)
+		local r=`r'+1
+	}
+	
+	foreach x in `cvars'{
+		sum `x' if intervention==`i'
+		capture mat tab[`r',`c']=r(N)
+		capture mat tab[`r',`c'+1]=r(mean)
+		capture mat tab[`r',`c'+2]=r(min)
+		capture mat tab[`r',`c'+3]=r(max)
+		capture reg `x' intervention
+		capture test intervention
+		capture mat stars[`r',4]=(r(p)<.01) + (r(p)<.05)
+		local r=`r'+1
+	}
+	
+	sum n if intervention==`i'
+	mat tab[`r',`c']==r(N)
+	local r=1
+	local c=`c'+4
+}
+
+
+mat rownames tab= `ivars'  `cvars' "N"
+mat colnames tab="Control, N" "Control, Mean" "Control, Min" "Control, Max" "Intervention, N" "Intervention, Mean" "Intervention, Min" "Intervention, Max"
+
+mat list tab
+
+frmttable using "J:\Geriatrics\PCare\HoPe Project\MSD-1049\output\encounter_`c(current_date)'.rtf", replace statmat(tab) title("Table 1: One-year prior Encounter Statistics from Consent date") varlabels sdec(2) annotate(stars) asymbol(*,**)  note("* p<0.05; ** p<0.01" ) 
+
+restore
+
+
+keep if enc_date-consent_dt<=365 & enc_date-consent_dt>=0
+
+duplicates drop mrn pat_enc_csn_id, force
+
+foreach x in ed ambulatory icu{
+bys mrn: egen total_`x'=total(`x')
+bys mrn: egen total_`x'_days=total(days) if `x'==1
+}
+
+foreach x in act_tot_cost act_tot_charges act_var_dir_cost act_fix_dir_cost act_var_indir_cost act_fix_indir_cost{
+bys mrn: egen total_`x'=total(`x')
+sum total_`x'
+}
+
+
+duplicates drop mrn, force
+
+foreach x in ed ambulatory icu{
+gen flag_`x'=0
+replace flag_`x'=1 if total_`x'>0 & !missing(total_`x')
+}
+ 
+label var flag_ambulatory "Any Ambulatory vist, %"
+label var flag_ed "Any ED vist, %"
+label var flag_icu "Any ICU vist, %"
+
+label var total_ambulatory "Total Ambulatory visits"
+label var total_ed "Total ED visits"
+label var total_icu "Total ICU visits"
+
+label var total_ambulatory_days "Total Ambulatory days"
+label var total_ed_days "Total ED days"
+label var total_icu_days "Total ICU days"
+
+
+label var total_act_tot_cost "Total Cost"
+label var total_act_tot_charges "Total Charges"
+
+
+
+
+local ivars flag_ambulatory flag_ed flag_icu
+local cvars total_ambulatory total_ed total_icu total_ambulatory_days total_ed_days total_icu_days total_act_tot_cost total_act_tot_charges
+
+gen n=1 
+
+local rn : word count 1 `ivars' `cvars'
+mat tab=J(`rn',8,.)
+mat stars=J(`rn',8,0)
+local r=1
+local c=1
+
+forvalues i=0/1{
+
+	foreach x in `ivars'{
+		sum `x' if intervention==`i'
+		mat tab[`r',`c']=r(N)*r(mean)
+		mat tab[`r',`c'+1]==r(mean)*100
+		tab `x' intervention, chi2
+		mat stars[`r',4]=(r(p)<.01) + (r(p)<.05)
+		local r=`r'+1
+	}
+	
+	foreach x in `cvars'{
+		sum `x' if intervention==`i'
+		capture mat tab[`r',`c']=r(N)
+		capture mat tab[`r',`c'+1]=r(mean)
+		capture mat tab[`r',`c'+2]=r(min)
+		capture mat tab[`r',`c'+3]=r(max)
+		capture reg `x' intervention
+		capture test intervention
+		capture mat stars[`r',4]=(r(p)<.01) + (r(p)<.05)
+		local r=`r'+1
+	}
+	
+	sum n if intervention==`i'
+	mat tab[`r',`c']==r(N)
+	local r=1
+	local c=`c'+4
+}
+
+
+mat rownames tab= `ivars'  `cvars' "N"
+mat colnames tab="Control, N" "Control, Mean" "Control, Min" "Control, Max" "Intervention, N" "Intervention, Mean" "Intervention, Min" "Intervention, Max"
+
+mat list tab
+
+frmttable using "J:\Geriatrics\PCare\HoPe Project\MSD-1049\output\encounter_`c(current_date)'.rtf", replace statmat(tab) title("Table 1: One-year post Encounter Statistics from Consent date") varlabels sdec(2) annotate(stars) asymbol(*,**)  note("* p<0.05; ** p<0.01" ) addtable 
+
+/* We don't have claims for 3 individuals. 134 of 137 mrns available
+ ed, icu, and ambulatory (op) defined by MSDW. 
+
+
+check op only, icu only, op+icu...
+Most are op (89%) , 
+
+1117418 
+7332331 
+7822374 
+
+
+discharge date-encounter date 
+out of 31,489, 10 don't have one either date defined so are missing. 
+-- 3 encounters have it negative
+-- 4 are over 50 with one person having 858 days. 
+--149 are over 11
+
+H="xDocs data"
+import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\intervention_patients.xlsx", sheet("Sheet1") firstrow case(lower) allstring clear
+drop if mrn==""
+
+
+tempfile intervention
+save `intervention'
+
+import delimited "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\MountSinaiPalliative_DATA_2020-10-19_1133.csv", clear 
+keep if redcap_event_name=="enrollment_intervi_arm_1"
+
+rename study_id studyid
+tostring studyid, replace
+tempfile bl_char
+save `bl_char'
+
+import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\consent.xls", sheet("Sheet1") firstrow case(lower) allstring clear 
+
+merge 1:1 studyid using "`bl_char'", nogen
+
+gen female=0
+replace female=1 if pt_sex_bl==2
+
+gen consent_dt=date(consent_date, "MDY")
+format consent_dt %td
+
+merge 1:1 mrn using `intervention', gen(intervention)
+//62 are in the intervention group
+replace intervention=0 if intervention==1
+replace intervention=1 if intervention==3
+
+tempfile base
+save `base'
+
+
+use "J:\Geriatrics\PCare\HoPe Project\MSD-1049\Data-MSDW-1236\ACP_Documents.dta", clear
+sort mrn
+codebook mrn
+
+gen docu_date=date(doc_scan_date, "YMD")
+format docu_date %td
+
+tab doc_type
+
+merge m:1 mrn using "`base'"
+
+tab doc_type, gen(doc_type)
+
+forvalues i=1/5{
+bys mrn: egen doc_type_`i'=total(doc_type`i')
+replace doc_type_`i'=1 if doc_type_`i'>1 & !missing(doc_type_`i')
+}
+
+label var doc_type_1 "Advance Directives and Living Will"
+label var doc_type_2 "Healthcare Proxy"
+label var doc_type_3 "MOLST"
+label var doc_type_4 "MSW Health Care Proxy"
+label var doc_type_5 "SL Health Care Proxy"
+
+duplicates drop mrn, force
+ 
+gen n=1 
+
+local ivars doc_type_1 doc_type_2 doc_type_3 doc_type_4 doc_type_5
+
+local rn : word count 1 `ivars'
+mat tab=J(`rn',4,.)
+//mat stars=J(`rn',4,0)
+local r=1
+local c=1
+
+forvalues i=0/1{
+
+	foreach x in `ivars'{
+		sum `x' if intervention==`i'
+		mat tab[`r',`c']=r(N)*r(mean)
+		mat tab[`r',`c'+1]==r(mean)*100
+		//tab `x' intervention, chi2
+		//mat stars[`r',4]=(r(p)<.01) + (r(p)<.05)
+		local r=`r'+1
+	}
+	
+	sum n if intervention==`i'
+	mat tab[`r',`c']==r(N)
+	local r=1
+	local c=`c'+2
+}
+
+
+mat rownames tab= `ivars'  `cvars' "N"
+mat colnames tab="Control, N" "Control, %" "Intervention, N" "Intervention, %"
+
+mat list tab
+
+frmttable using "J:\Geriatrics\PCare\HoPe Project\MSD-1049\output\docs_`c(current_date)'.rtf", replace statmat(tab) title("Table 1: Any Document Statistics") varlabels sdec(2) annotate(stars) /*asymbol(*,**)*/  note("Out of 52 unique individuals" ) 
+
+H="Docs data"
+import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\intervention_patients.xlsx", sheet("Sheet1") firstrow case(lower) allstring clear
+drop if mrn==""
+
+
+tempfile intervention
+save `intervention'
+
+import delimited "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\MountSinaiPalliative_DATA_2020-10-19_1133.csv", clear 
+keep if redcap_event_name=="enrollment_intervi_arm_1"
+
+rename study_id_1 studyid
+tostring studyid, replace
+tempfile bl_char
+save `bl_char'
+
+//import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\consent.xls", sheet("Sheet1") firstrow case(lower) allstring clear 
+import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\consent_full_193.xls", sheet("Sheet1") firstrow case(lower) allstring clear
+
+merge 1:1 studyid using "`bl_char'", nogen
+
+gen female=0
+replace female=1 if pt_sex_bl==2
+
+gen consent_dt=date(consent_date, "MDY")
+format consent_dt %td
+
+merge 1:1 mrn using `intervention', gen(intervention)
+//62 are in the intervention group
+replace intervention=0 if intervention==1
+replace intervention=1 if intervention==3
+
+destring mrn, replace
+
+tempfile base
+save `base'
+
+
+import delimited "J:\Geriatrics\PCare\HoPe Project\MSD-1049\Data-MSDW-1236\ACP_Documents_V3.txt", encoding(ISO-8859-2) stringcols(1) clear
+rename y_mrn mrn
+sort mrn
+codebook mrn
+
+gen docu_date=date(doc_scan_time, "YMD")
+format docu_date %td
+
+tab doc_type
+
+merge m:1 mrn using "`base'"
+
+tab doc_type, gen(doc_type)
+replace doc_type2=1 if doc_type4==1 |doc_type5==1
+drop doc_type4 doc_type5 
+
+gen start_date1=date(start_date,"MDY")
+format start_date1 %td
+gen days_btw= start_date1-docu_date
+
+
+forvalues i=1/3{
+bys mrn: egen doc_type_`i'_l=total(doc_type`i') if inrange(days_btw,0,183)
+bys mrn: egen doc_type_`i'=total(doc_type_`i'_l)
+drop doc_type_`i'_l
+replace doc_type_`i'=1 if doc_type_`i'>1 & !missing(doc_type_`i')
+}
+
+label var doc_type_1 "Advance Directives and Living Will"
+label var doc_type_2 "Healthcare Proxy"
+label var doc_type_3 "MOLST"
+
+
+
+
+duplicates drop mrn, force
+ 
+codebook mrn
+ 
+gen n=1 
+
+local ivars doc_type_1 doc_type_2 doc_type_3 
+
+local rn : word count 1 `ivars'
+mat tab=J(`rn',4,.)
+//mat stars=J(`rn',4,0)
+local r=1
+local c=1
+
+forvalues i=0/1{
+
+	foreach x in `ivars'{
+		sum `x' if intervention==`i'
+		mat tab[`r',`c']=r(N)*r(mean)
+		mat tab[`r',`c'+1]==r(mean)*100
+		//tab `x' intervention, chi2
+		//mat stars[`r',4]=(r(p)<.01) + (r(p)<.05)
+		local r=`r'+1
+	}
+	
+	sum n if intervention==`i'
+	mat tab[`r',`c']==r(N)
+	local r=1
+	local c=`c'+2
+}
+
+
+mat rownames tab= `ivars'  `cvars' "N"
+mat colnames tab="Control, N" "Control, %" "Intervention, N" "Intervention, %"
+
+mat list tab
+
+frmttable using "J:\Geriatrics\PCare\HoPe Project\MSD-1049\output\docs_`c(current_date)'.rtf", replace statmat(tab) title("Table 1: 6-month Document Statistics") varlabels sdec(2) annotate(stars) /*asymbol(*,**)*/  note("Out of 137 unique individuals. We look at 6-months prior to consent. All Non-intervention individuals are in the Control group." ) 
+
+H="DNR"
+/*
+Full code means that all should be done to keep the person alive. 
+
+
+*/
+import excel "J:\Geriatrics\PCare\HoPe Project\MSD-1049\data\consent_full_193.xls", sheet("Sheet1") firstrow case(lower) allstring clear
+
+tempfile consent
+save `consent'
+
+
+import delimited "J:\Geriatrics\PCare\HoPe Project\MSD-1049\Data-MSDW-1236\DNR_Advance_Directives_V3.txt", stringcols(1) clear 
+
+sort mrn
+
+H="Change log"
+/*
+
+********************Change Log******************** 
+
+
+
+Updates:
+
+03/12/2021 MH
+------------
+Encouner and Document tables. 
+
+03/05/2021 MH
+------------
+Cleanup and intital tables with MSDW data. 
+
+*************
+
+10/22/2020 MH
+------------
+New excel file created to get 6-months before consent date so data warehouse can pull those encounters between enrollment and 6-months prior. 
+
+10/20/2020 MH
+------------
+Hope analysis started. First pass for West tables. 
+
+*/

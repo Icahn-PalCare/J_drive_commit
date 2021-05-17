@@ -1,0 +1,1049 @@
+= V4 Outline MultiLine NoSorting TabWidth=30
+
+H="Troubleshoot Vars smc"
+*check variables 
+
+use "${intpath}\p01_preval_2016_ffsrestr_sample", clear
+
+
+label def comor_c_hrs 0 "0" 1 "1-3" 2 "4-6" 3 "7-9"
+label val comor_c_hrs comor_c_hrs
+
+*set up smoke_ever for 2016. (all prev years have 0/1 w/ some missing)
+tab core_year smoke_ever, m
+replace smoke_ever = 0 if missing(smoke_ever)
+
+*only 421 people in 2016 with proxy ivw & 520 missing. (520 should be proxy)
+replace proxy_core = 1 if proxy_core ==.
+
+local cvars1 age 
+local ivars1 female white black hisp hseduc married marital_wid resspouse  nhres nhres_2yr hh_worker
+**
+foreach x of local ivars1 {
+tab core_year `x', m
+} 
+** 
+local cvars2   comor_in_hrs 
+local ivars2 srh_pf medicare medicareb medicaid cesd_tot_ge3 smoke_ever stroke_hrs falls_hrs proxy_core dem_only adl_only ndsmc_only dem_ndsmc_only dem_adl_only adl_ndsmc_only all 
+**
+foreach x of local ivars2 {
+tab core_year `x', m
+} 
+ 
+**
+local catvars2 comor_c_hrs
+
+local comorb lung_lim_hrs heart_hrs chf_hrs chfadmit_hrs stroke_hrs memory_hrs falls_hrs incont_hrs pain_hrs pain_limit_act_hrs htn_hrs dm_hrs dm_ins_hrs psych_hrs arth_hrs  dyspnea_hrs swelling_feet_hrs dizzy_hrs  depr_2_wks_hrs  psych_overall_hrs
+
+*only asked after 2010 
+ chfdrever_hrs 
+
+ *asked every other core_year, asked in 2016
+cancer_treat_hrs dyspnea_hrs swelling_feet_hrs dizzy_hrs back_pain_hrs headache_hrs  fatigue_hrs  cough_hrs
+ 
+*large amount of missing 
+tab1 hip_frac_hrs falls_hrs, m
+ **
+foreach x of local comorb {
+tab core_year `x', m
+} 
+
+*need to fix for 2014 (1/missing)
+tab core_year psych_overall_hrs, m
+*fix for 2014 & 2016 
+  tab core_year dm_kidn_hrs, m
+  tab core_year lung_lim_hrs, m
+*fix for 2016 & check 2010 
+tab core_year memory_hrs, m 
+*fix 2016 
+tab core_year heart_hrs, m 
+tab core_year  lung_hrs, m 
+tab core_year cancer_hrs, m  
+
+
+
+H="Event Category Graphs using Stata"
+cd "${output}" 
+
+*Prevalent 2016 Restricted to FFS 
+use "${intpath}\p01_preval_2016_ffsrestr_sample", clear
+/*
+gen event_cat = 0 if none ==1 
+replace event_cat =1 if dem_only ==1 
+replace event_cat =2 if adl_only ==1 
+replace event_cat =3 if ndsmc_only ==1
+replace event_cat =4 if dem_adl_only==1
+replace event_cat =5 if dem_ndsmc_only ==1
+replace event_cat =6 if adl_ndsmc_only ==1 
+replace event_cat =7 if all==1
+
+label def event_cat 0 "none" 1 "Dem only" 2 "ADL only" 3 "NDSMC only" 4 "Dem&ADL only" 5 "Dem&NDSMC only" 6 "ADL&NDSMC only" 7 "All"
+label val event_cat event_cat
+label var event_cat "Event Categories"
+*/
+
+gen has_event = none ==0 & !missing(none)
+tab has_event none, m
+
+graph bar dem_only adl_only ndsmc_only dem_adl_only dem_ndsmc_only adl_ndsmc_only all if has_event ==1, percent blabel(bar) title(% in Event Category (of those with an Event)) legend(label(1 "Dem Only") label(2 "ADL Only") label(3 "NDSMC Only") label(4 "Dem & ADL Only") label(5 "Dem & NDSMC Only") label(6 "ADL & NDSMC Only") label(7 "Has All 3 Events")) name(event_categories, replace)
+
+graph bar none has_event, percent blabel(bar) title(% with Event) legend(label(1 "No Event") label(2 "Has Event")) name(event_yn, replace)
+
+graph combine event_yn event_categories, xsize(15) ysize(5) ycommon name(events_combined, replace)
+
+graph bar dem_only adl_only ndsmc_only dem_adl_only dem_ndsmc_only adl_ndsmc_only all, blabel(bar) title(Mean of Event Category (of everyone in sample)) legend(label(1 "Dem Only") label(2 "ADL Only") label(3 "NDSMC Only") label(4 "Dem & ADL Only") label(5 "Dem & NDSMC Only") label(6 "ADL & NDSMC Only") label(7 "Has All 3 Events")) name(events_all_incl, replace)
+*********************
+*old
+**graphs 
+gen event_cat = 0 if none ==1 
+replace event_cat =1 if dem_only ==1 
+replace event_cat =2 if adl_only ==1 
+replace event_cat =3 if ndsmc_only ==1
+replace event_cat =4 if dem_adl_only==1
+replace event_cat =5 if dem_ndsmc_only ==1
+replace event_cat =6 if adl_ndsmc_only ==1 
+replace event_cat =7 if all==1
+
+label def event_cat 0 "none" 1 "Dem only" 2 "ADL only" 3 "NDSMC only" 4 "Dem&ADL only" 5 "Dem&NDSMC only" 6 "ADL&NDSMC only" 7 "All"
+label val event_cat event_cat
+label var event_cat "Event Categories"
+
+gen has_event = event_cat !=0 & !missing(event_cat)
+tab has_event
+
+hist has_event, percent name(has_event, replace) title("Has Event") 
+hist event_cat, percent name(event_cat, replace) //addlabels
+hist event_cat if event_cat!=0, percent name(non_zero_event, replace) title("Type of Event") //addlabels
+*hist event_cat if event_cat==0, percent name(zero_event, replace) addlabels
+graph combine event_cat non_zero_event has_event, ycommon 
+graph combine has_event non_zero_event, ycommon xsize(5)
+
+*counts
+hist event_cat, freq name(event_cat_count, replace) addlabels 
+hist event_cat if event_cat!=0, count name(non_zero_event_count, replace) addlabels
+*hist event_cat if event_cat==0, count name(zero_event, replace) addlabels
+graph combine event_cat non_zero_event, ycommon 
+
+local events none dem_only adl_only ndsmc_only dem_adl_only dem_ndsmc_only adl_ndsmc_only all 
+foreach x of local events {
+tab `x', m
+graph bar `x' if event_cat!=0, name(`x', replace) title(`x') asyvars
+}
+
+graph combine dem_only adl_only ndsmc_only dem_adl_only dem_ndsmc_only adl_ndsmc_only all, ycommon xsize(10) col(5)
+
+
+hist none, name(none, replace) title(none) //percent
+
+
+
+
+graph bar (count) dem_only, name(dem_only, replace) title (dem_only)
+graph bar (count) event_cat if event_cat==2, name(adl_only, replace) title (adl_only)
+graph bar (count) event_cat if event_cat==3, name(ndsmc_only, replace) title (ndsmc_only)
+graph bar (count) event_cat if event_cat==4, name(dem_adl_only, replace) title (dem_adl_only)
+graph bar (count) event_cat if event_cat==5, name(dem_ndsmc_only, replace) title (dem_ndsmc_only)
+graph bar (count) event_cat if event_cat==6, name(adl_ndsmc_only, replace) title (adl_ndsmc_only)
+graph bar (count) event_cat if event_cat==7, name(all, replace) title (all)
+
+graph combine dem_only adl_only ndsmc_only dem_adl_only dem_ndsmc_only adl_ndsmc_only all, ycommon 
+
+graph bar (count) event_cat if event_cat==0, name(none, replace) title(none) 
+graph bar (count) event_cat if event_cat==1, name(dem_only, replace) title (dem_only)
+graph bar (count) event_cat if event_cat==2, name(adl_only, replace) title (adl_only)
+graph bar (count) event_cat if event_cat==3, name(ndsmc_only, replace) title (ndsmc_only)
+graph bar (count) event_cat if event_cat==4, name(dem_adl_only, replace) title (dem_adl_only)
+graph bar (count) event_cat if event_cat==5, name(dem_ndsmc_only, replace) title (dem_ndsmc_only)
+graph bar (count) event_cat if event_cat==6, name(adl_ndsmc_only, replace) title (adl_ndsmc_only)
+graph bar (count) event_cat if event_cat==7, name(all, replace) title (all)
+
+graph combine dem_only adl_only ndsmc_only dem_adl_only dem_ndsmc_only adl_ndsmc_only all, ycommon 
+
+graph bar has_event dem_only adl_only ndsmc_only dem_adl_only dem_ndsmc_only adl_ndsmc_only all if event !=0, percent
+
+
+H="Diabetes Table"
+cd "${output}"
+use "${intpath}\p01_preval_2016_ffsrestr_sample", clear
+
+mat tab = J(5,2,.)
+local r = 1 
+local c = 1
+
+
+foreach x of varlist dem ndsmc_ind adl_only none {
+tab dm_hrs if `x'==1 & dm_hrs ==1 
+mat tab[`r',`c']= r(N)
+
+tab smi_diab_compl_ind if `x'==1 & smi_diab_compl_ind ==1 
+mat tab[`r',`c'+1]= r(N)
+local r = `r'+1
+}
+
+mat rownames tab = "dementia" "ndsmc_ind" "adl_only" "none" "Total"
+mat list tab
+
+frmttable, statmat(tab) ctitles("" "HRS Diabetes" "Claims Diabetes") varlabels note("Events are not mutually exclusive")
+
+tab dm_hrs smi_diab_compl if ndsmc_ind==1
+
+H="*******************"
+
+
+H="First Heading"
+/*  
+********************HEADING******************** 
+
+Project Name: P01: Dementia, NDSMC, ADL 
+
+Date Started:11/1/20
+
+Primary Investigator: Amy Kelley
+Funding Source: 	
+
+Created by:CY
+
+Primary Analyst: CY
+Secondary Analyst: EBL
+
+Datasets Used: HRS 
+
+
+*/
+ 
+//STATA
+// Global Macros use $ symbol to be called. 
+
+//Clean HRS 
+global hrs "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data"
+
+global ffs "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\hrs_ffs_offs.dta"
+
+//serious illness file in R01 prosp project for indicators 
+global serious_illness "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\serious_ill_flags_00_16_hrs_unr.dta"
+
+//utilization variables (file name is very similar to the flags file but content is different!)
+global utilization "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\ASK_P01\ask_p01_ndsmc_dem_adl\data\serious_ill_int_dataset_unr.dta"
+
+//Intermediate Data Path
+global intpath "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\ASK_P01\ask_p01_ndsmc_dem_adl\data"
+
+// Final Data Path
+
+//Output files path
+global output "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\ASK_P01\ask_p01_ndsmc_dem_adl\in progress_p01"
+
+H="Data Set Up: Prevalent 2016 Sample"
+/*
+Updated By: CY
+Date Updated: 4/21/21
+
+Data Set Up 
+P01: Look at cross section of 2016 NDSMC, Dementia, ADL, all (Prevalence)
+
+*/
+
+cd "${output}" 
+
+use "${hrs}\core_00_to_18_unr.dta", clear 
+
+merge 1:1 id core_year using "${serious_illness}", gen(merged_smc) keep(master match)
+sort id core_year
+drop cont_ffs_n_mos 
+
+gen merged_smc_ind = merged_smc ==3
+label var merged_smc_ind "Core Merged with SMC"
+
+merge 1:1 id core_year using "${hrs}\pdem_withvarnames_00_16.dta", gen(merged_smc_pdem) keepusing(pdem) keep(master match) //proxy_core
+gen merged_smc_pdem_ind = merged_smc_pdem ==3
+label var merged_smc_pdem_ind "Merged in PDEM"
+
+*merge in utilization 
+merge 1:1 id core_year using "${utilization}", keep(master match) gen(merged_utiliz)
+gen merged_utiliz_ind = merged_utiliz==3
+
+*helper file also includes exit years but this project is prevalent so we don't merge in exit & just using year to merge temporarily, only core_years will match since exit ivws aren't incl.
+gen year = core_year 
+merge 1:1 id year using "${hrs}\helper_hours_2016.dta", gen(has_help) keepusing(n_hp n_i n_f) keep(master match) 
+*don't keep only matched for helpers, only those matched have helpers 
+gen has_helper = inlist(has_help,2,3)
+label var has_helper "Has at least 1 helper ind(adl/iadl)"
+
+gen n_help =n_hp 
+replace n_help = 0 if n_hp ==. 
+label var n_help "Total num helpers, incls everyone"
+
+gen cat_help = n_hp 
+replace cat_help =0 if n_hp==. 
+replace cat_help=1 if inrange(n_hp,1,2)
+replace cat_help=2 if inrange(n_hp,3,16)
+label var cat_help "Total Num Helpers, categorical"
+label def cat_help 0 "0" 1 "1-2" 2 "3-16"
+label val cat_help cat_help 
+tab n_hp cat_help, m
+
+*year only used for the merge, continue to only use core_year instead
+drop year
+
+**need to clean up and set up the helper vars, total num helpers to incl those missing as 0, make note for informal helpers as of those with helpers. 
+
+*merge in fee for service indicators 
+merge 1:1 id core_year using "${ffs}", keep(master match) nogen
+**about 8,000 id only in ffs file & not core. Ok to leave them out. 
+
+merge m:1 hhid pn using "${hrs}\trk2016tr_r.dta", keepusing(pwgtre stratum secu gender hispanic race degree birthyr exdeathmo exdeathyr exdodsource lastaliveyr piwyear piwmonth) gen(merged_tracker) keep(master match)
+
+gen merged_tracker_ind=merged_tracker ==3
+label var merged_tracker_ind "Merged in Tracker"
+
+gen merged = 1 if merged_smc_ind==1 & merged_smc_pdem_ind==1 & merged_tracker_ind==1 & merged_utiliz_ind==1  
+
+*restrict to 12+ FFS Mos 
+*keep if cont_ffs >=12
+gen ffs12=ind_ffs_n12m & !missing(ind_ffs_n12m)
+label var ffs12 "Fee for Service 12+ Mos Prior"
+
+gen dem = pdem >0.5 & !missing(pdem)
+label var dem "Dementia Indicator"
+
+gen adl_dependent = 0 if adl_independent_core ==1 
+replace adl_dependent = 1 if adl_independent_core ==0
+label var adl_dependent "ADL Dependent(1+)"
+
+gen iadl_dependent = 0 if iadl_independent_core ==1 
+replace iadl_dependent = 1 if iadl_independent_core ==0
+label var iadl_dependent "IADL Dependent(1+)"
+
+egen ndsmc_count = rowtotal(smi_cancer_ind-smi_cva_ind), missing
+label var ndsmc_count "Non Dementia SMC Count Per Wave"
+
+gen ndsmc_ind  = ndsmc_count
+replace ndsmc_ind = 1 if ndsmc_count > 0 & ndsmc_count < . 
+label var ndsmc_ind "NDSMC Indicator"
+
+*non missing events 
+gen curr_stat = 1 if !missing(pdem) & !missing(adl_dependent) & !missing(ndsmc_count)
+label var curr_stat "Has Current Event Status"
+
+gen dem_only = dem ==1 & adl_dep==0 & ndsmc_ind ==0 
+gen adl_only = dem ==0 & adl_dep ==1 & ndsmc_ind ==0
+gen ndsmc_only = dem ==0  & adl_dep ==0 &  ndsmc_ind ==1
+gen dem_ndsmc_only = dem==1 & adl_dep ==0  & ndsmc_ind ==1 
+gen dem_adl_only = dem ==1 & adl_dep ==1 & ndsmc_ind==0 
+gen adl_ndsmc_only = dem ==0 & adl_dep ==1 & ndsmc_ind ==1 
+gen all = dem==1 & adl_dep ==1 & ndsmc_ind ==1
+gen none = dem ==0 & adl_dep ==0 & ndsmc_ind ==0 
+
+*var set up 
+sort id core_year 
+gen age=core_year-birthyr if core_year !=. & birthyr >0
+
+drop female 
+gen female = 0 if gender ==1 
+replace female = 1 if gender ==2
+
+drop hisp 
+gen hisp = inrange(hispanic,1,3) 
+label var hisp "Hispanic"
+gen newrace = 1 if hisp ==1
+replace newrace = 2 if race ==2 & hisp==0 
+replace newrace =3 if inlist(race,1,7) & hisp == 0 
+replace newrace = 3 if missing(newrace)
+*13 missing obs changed to White/Other 
+
+gen race_no_oth= 1 if hisp ==1
+replace race_no_oth = 2 if race ==2 & hisp==0 
+replace race_no_oth =3 if race==1 & hisp == 0 
+label define race_no_oth 1 "Hispanic" 2 "Non-Hispanic Black" 3 "Non-Hispanic White(no other)"
+label values race_no_oth race_no_oth
+label var race_no_oth "Race (Other cat as Missing)"
+
+gen white = race_no_oth==3
+label var white "White"
+tab white
+
+drop race
+rename newrace race 
+label define race 1 "Hispanic" 2 "Non-Hispanic Black" 3 "Non-Hispanic White/Other"
+label values race race
+label var race "Race"
+
+gen black = race==2
+label var black "Non-Hispanic Black"
+gen white_oth = race==3
+label var white_oth "Non-Hispanic White/Other"
+
+*education
+gen hs = inrange(degree,1,9)
+drop educ ed_less_hs ed_missing hseduc
+rename hs hseduc
+label var hseduc "HS Educ" 
+
+*adl count
+gen adl_count_any = adl_index_core>=1 & adl_index_core <.
+replace adl_count_any = 0 if adl_index_core ==.
+label var adl_count_any "Any ADL Counts"
+
+*iadl count
+gen iadl_count_any = iadl_ind_core>=1 & iadl_ind_core < .
+replace iadl_count_any = 0 if iadl_ind_core ==.
+label var iadl_count_any "Any IADL Counts"
+
+*comorbidities
+label def comor_c_hrs 0 "0" 1 "1-3" 2 "4-6" 3 "7-9"
+label val comor_c_hrs comor_c_hrs
+
+label define medicaid 0 "No" 1 "Yes"
+label values medicaid medicaid 
+
+*set up Medicaid vars (for graphs)
+gen medicaid_mis=1 if medicaid ==0
+replace medicaid_mis=2 if medicaid ==1
+replace medicaid_mis = 3 if medicaid ==. 
+label define medicaid_mis 1 "No Medicaid" 2 "Has Medicaid" 3 "Missing", replace
+label values medicaid_mis medicaid_mis
+label var medicaid_mis "Medicaid (incl Missing)"
+
+*get prevalence (NO FFS RESTRICT) of 2016 adl/ndsmc/dem*
+preserve 
+drop merged_smc merged_smc_ind merged_smc_pdem merged_smc_pdem_ind merged_tracker merged_tracker_ind merged_utiliz_ind merged_utiliz 
+
+keep if core_year==2016 & merged ==1 & curr_stat ==1 
+/*gives number of ppl who 
+tab curr_stat ffs12, m
+*check all numbers 
+foreach x of varlist dem_only - adl_ndsmc_only{
+tab `x' 
+}
+tab1 dem adl_dep ndsmc_ind all none 
+*/
+save "${intpath}\p01_preval_2016_unrestr_sample", replace
+
+restore
+
+*get prevalence (WITH FFS RESTRICT) of 2016 adl/ndsmc/dem*
+preserve 
+drop merged_smc merged_smc_ind merged_smc_pdem merged_smc_pdem_ind merged_tracker merged_tracker_ind 
+keep if core_year==2016 & merged ==1 & curr_stat ==1 & ffs12 ==1
+
+/*check all numbers 
+tab all 
+foreach x of varlist dem_only - adl_ndsmc_only{
+tab `x' 
+}
+
+tab1 dem adl_dep ndsmc_ind all none 
+*/
+save "${intpath}\p01_preval_2016_ffsrestr_sample", replace
+restore 
+**
+
+H="sample popln: proportional venn diagram "
+*ssc install venndiag
+*ssc install pvenn
+
+cd "${output}" 
+use "${intpath}\p01_preval_2016_ffsrestr_sample", clear
+
+venndiag dem adl_dependent ndsmc_ind 
+pvenn dem adl_dependent ndsmc_ind
+pvenn dem adl_dependent ndsmc_ind, ang(30) drawtotal(1)
+pvenn dem adl_dependent ndsmc_ind, drawtotal(1) drawlabel(1) plabel("Dem" "ADL" "NDSMC") lw("0.1" "0.1" "0.1")
+
+svyset secu [pw=wgtr], strata(stratum)venndiag dem adl_dependent ndsmc_ind 
+
+H="Table 1 : Prevalent 2016 Sample (Unwgtd & wgtd)"
+/*
+Updated By: CY
+Date Updated: 4/21/21
+
+*P01 Table 1: Prevalent 2016 Dem/NDSMC/ADL ( FFS restricted )
+Weighted and Unweighted Table 1
+*/
+cd "${output}" 
+
+*Prevalent 2016 Restricted to FFS 
+use "${intpath}\p01_preval_2016_ffsrestr_sample", clear
+
+label var adl_index_core "ADL Index (Avge)"
+label var iadl_ind_core "IADL Index (Avge)"
+label var age "Age (Mean in Years)"
+label var comor_in_hrs "Index of Comorbidities (Mean)"
+label var n_i "Mean Num of Informal Help (of those w/ helpers)"
+label var n_f "Mean Num of Formal Help (of those w/ helpers)"
+label var n_help "Mean Num Total Num Helpers (incl Everyone)"
+
+*Unweighted Table 
+preserve
+local events dem adl_dependent ndsmc_ind none 
+local cvars1 age 
+local ivars1 female white black hisp hseduc married marital_wid resspouse  nhres nhres_2yr hh_worker proxy_core medicaid cesd_tot_ge3 srh_pf
+local cvars2  comor_in_hrs
+local ivars2 falls_hrs smi_dem_ind smi_cancer_ind smi_renal_ind smi_chf_ind smi_copd_ind smi_diab_compl_ind smi_liver_ind smi_hiv_ind hosp_last_2yr 
+local cvars3 n_help n_i n_f  
+local ivars3 has_helper adl_dependent iadl_dependent dem_only adl_only ndsmc_only dem_ndsmc_only dem_adl_only adl_ndsmc_only all 
+*heart_hrs lung_hrs cancer_hrs hosp_last_2yr 
+*cvars3 adl_helper_count iadl_helper_count n_help n_i n_f 
+
+gen popn=1
+
+forvalues i=1/5 {
+	local cativars`i'
+	foreach x of local catvars`i' {
+		gen l`x'=.
+		local lab : var label `x'
+		label var l`x' "`lab'"
+		di "`x'"
+		local `x'
+		levelsof `x', local(levels)
+		foreach l of local levels {
+			gen `x'`l'=`x'==`l' if !missing(`x')
+			local lab : label `x' `l'
+			label var `x'`l' "`lab'"
+			local `x' ``x'' `x'`l'
+}
+		di "``x''"
+		local cativars`i' `cativars`i'' ``x''
+}
+}
+
+local rows
+forvalues i=1/4 {
+local rows `rows' `cvars`i'' `ivars`i'' `catvars`i'' `cativars`i'' 
+}
+
+local rn : word count `rows' 1
+local r=1
+local c=1
+
+mat tab=J(`rn',4,.)
+mat stars=J(`rn',4,0)
+
+foreach y of local events {
+forvalues i=1/4 {
+	foreach x of local cvars`i' {
+		sum `x' if `y'==1
+		mat tab[`r',`c']=r(mean)
+		local r=`r'+1
+		
+}
+	foreach x of local ivars`i' {
+		sum `x' if  `y'==1
+		if r(mean)*r(N)>=11 & r(mean)*r(N)<=r(N)-11{
+		mat tab[`r',`c']=r(mean)*100
+		}
+		else if r(mean)*r(N)==0 |r(mean)*r(N)==r(N){
+		mat tab[`r',`c']=r(mean)*100
+		}
+		else{
+		di "small cell for `x' & `y'"
+		mat tab[`r',`c']=.
+		mat stars[`r',`c']=1
+		}
+		local r=`r'+1
+}
+
+}
+	sum popn if `y'==1
+	mat tab[`r',`c']==r(N)
+	local r=1
+	local c = `c'+1
+}
+mat rownames tab=`rows'  N
+
+mat list tab 
+frmttable using "Tab 1_p01_preval_events_`c(current_date)'.rtf", statmat(tab) title("Unweighted 2016 Prevalent Events (FFS Restricted)") ctitles("" "Dementia %" "ADL %" "NDSMC %" "None %" ) varlabels  annotate(stars) asymbol(NR) note("Dementia,NDSMC, ADL are not mutually exclusive groups." "formal & informal helpers are only of those with any helpers." "NR: not reportable") replace sdec(2,2)
+
+restore
+
+
+***Weighted Table***
+preserve
+svyset secu [pw=pwgtre], strata(stratum)
+
+local events dem adl_dependent ndsmc_ind none 
+local cvars1 age 
+local ivars1 female white black hisp hseduc married marital_wid resspouse  nhres nhres_2yr hh_worker proxy_core medicaid cesd_tot_ge3 srh_pf
+local cvars2  comor_in_hrs
+local ivars2 falls_hrs smi_dem_ind smi_cancer_ind smi_renal_ind smi_chf_ind smi_copd_ind smi_diab_compl_ind smi_liver_ind smi_hiv_ind hosp_last_2yr 
+local cvars3 n_help n_i n_f  
+local ivars3 has_helper adl_dependent iadl_dependent dem_only adl_only ndsmc_only dem_ndsmc_only dem_adl_only adl_ndsmc_only all 
+*heart_hrs lung_hrs cancer_hrs hosp_last_2yr 
+*cvars3 adl_helper_count iadl_helper_count n_help n_i n_f 
+
+gen popn=1
+
+forvalues i=1/5 {
+	local cativars`i'
+	foreach x of local catvars`i' {
+		gen l`x'=.
+		local lab : var label `x'
+		label var l`x' "`lab'"
+		di "`x'"
+		local `x'
+		levelsof `x', local(levels)
+		foreach l of local levels {
+			gen `x'`l'=`x'==`l' if !missing(`x')
+			local lab : label `x' `l'
+			label var `x'`l' "`lab'"
+			local `x' ``x'' `x'`l'
+}
+		di "``x''"
+		local cativars`i' `cativars`i'' ``x''
+}
+}
+
+local rows
+forvalues i=1/4 {
+local rows `rows' `cvars`i'' `ivars`i'' `catvars`i'' `cativars`i'' 
+}
+
+local rn : word count `rows' 1
+local r=1
+local c=1
+
+mat tab=J(`rn',4,.)
+mat stars=J(`rn',4,0)
+
+foreach y of local events {
+forvalues i=1/4 {
+	foreach x of local cvars`i' {
+	svy, subpop(if `y'==1): mean `x'
+		mat tab[`r',`c']=e(b)
+		local r=`r'+1
+		
+}
+	foreach x of local ivars`i' {
+		svy, subpop(if `y'==1): mean `x'
+		local mean e(b)
+		sum `x' if  `y'==1
+		if r(mean)*r(N)>=11 & r(mean)*r(N)<=r(N)-11{
+		mat tab[`r',`c']=`mean'*100
+		}
+		else if r(mean)*r(N)==0 |r(mean)*r(N)==r(N){
+		mat tab[`r',`c']=`mean'*100
+		}
+		else{
+		di "small cell for `x' & `y'"
+		mat tab[`r',`c']=.
+		mat stars[`r',`c']=1
+		}
+		local r=`r'+1
+}
+
+}
+	svy, subpop(if `y'==1): mean popn
+	mat tab[`r',`c']== e(N_subpop)
+	local r=1
+	local c = `c'+1
+}
+mat rownames tab=`rows'  N
+
+mat list tab 
+frmttable using "Tab 1_p01_preval_events_`c(current_date)'.rtf", statmat(tab) title("Weighted 2016 Prevalent Events (FFS Restricted)") ctitles("" "Dementia %" "ADL %" "NDSMC %" "None %" ) varlabels  annotate(stars) asymbol(NR) note("Dementia,NDSMC, ADL are not mutually exclusive groups." "formal & informal helpers are only of those with any helpers." "NR: not reportable") addtable sdec(2,2)
+
+
+
+H="SMI Population Sizes among Event Tables"
+/*
+Updated By: CY
+Date Updated: 4/21/21
+
+*Serious Medical Condition Sample Sizes, Wgtd & Unwgtd 
+*/
+
+cd "${output}" 
+use "${intpath}\p01_preval_2016_ffsrestr_sample", clear
+
+*Population Numbers 
+preserve 
+gen popn=1
+
+local events dem adl_dependent ndsmc_ind none 
+local smi smi_dem_ind smi_cancer_ind smi_renal_ind smi_chf_ind smi_copd_ind smi_diab_comp~d smi_liver_ind smi_hiv_ind smi_neurodeg_~d smi_hip_ind smi_cva_ind    
+
+local rn : word count `smi' 1
+local r=1
+local c=1
+
+mat tab=J(`rn',4,.)
+mat stars=J(`rn',4,0)
+
+foreach y of local events {
+foreach x of local smi{
+sum `x' if `y'==1
+	if r(mean)*r(N)>=11 & r(mean)*r(N)<=r(N)-11{
+		mat tab[`r',`c']=r(mean)*r(N)
+		}
+	else if r(mean)*r(N)==0 |r(mean)*r(N)==r(N){
+		mat tab[`r',`c']=r(mean)*r(N)
+		}
+	else{
+		di "small cell for `x' & `y'"
+		mat tab[`r',`c']=.
+		mat stars [`r',`c']=1
+		}
+		local r=`r'+1
+}
+
+sum popn if `y'==1
+mat tab[`r',`c']==r(N)
+local r=1
+local c = `c'+1
+}
+
+mat rownames tab = `smi' Total 
+
+frmttable using "smi_popln_p01_preval_events_`c(current_date)'.rtf", statmat(tab) title("SMI Sample Size") ctitles("" "Dementia" "ADL" "NDSMC" "None" ) varlabels note("Dementia,NDSMC, ADL are not mutually exclusive groups.") annotate(stars) asymbol(NR) sdec(0,0,0,0)replace
+
+restore 
+
+*Unweighted Table & Unrestricted Cells(Cannot be shared)
+preserve 
+gen popn=1
+
+local events dem adl_dependent ndsmc_ind none 
+local smi smi_dem_ind smi_cancer_ind smi_renal_ind smi_chf_ind smi_copd_ind smi_diab_comp~d smi_liver_ind smi_hiv_ind smi_neurodeg_~d smi_hip_ind smi_cva_ind    
+
+local rn : word count `smi' 1
+local r=1
+local c=1
+
+mat tab=J(`rn',4,.)
+mat stars=J(`rn',4,0)
+
+foreach y of local events {
+foreach x of local smi{
+sum `x' if `y'==1
+mat tab[`r',`c']=r(mean)*100
+local r = `r'+1 
+}
+
+sum popn if `y'==1
+mat tab[`r',`c']==r(N)
+local r=1
+local c = `c'+1
+}
+
+mat rownames tab = `smi' Total
+
+frmttable using "smi_popln_p01_preval_events_`c(current_date)'.rtf", statmat(tab) title("SMI Unweighted %s (Unrestricted Cell)") ctitles("" "Dementia %" "ADL %" "NDSMC %" "None %" ) varlabels note("**Cannot be shared due to small cell sizes**"  "Dementia,NDSMC, ADL are not mutually exclusive groups.") addtable
+
+restore 
+
+**Unweighted Table, Restricted Cell Sizes
+preserve 
+gen popn=1
+
+local events dem adl_dependent ndsmc_ind none 
+local smi smi_dem_ind smi_cancer_ind smi_renal_ind smi_chf_ind smi_copd_ind smi_diab_comp~d smi_liver_ind smi_hiv_ind smi_neurodeg_~d smi_hip_ind smi_cva_ind    
+
+local rn : word count `smi' 1
+local r=1
+local c=1
+
+mat tab=J(`rn',4,.)
+mat stars=J(`rn',4,0)
+
+foreach y of local events {
+foreach x of local smi{
+sum `x' if `y'==1
+	if r(mean)*r(N)>=11 & r(mean)*r(N)<=r(N)-11{
+		mat tab[`r',`c']=r(mean)*100
+		}
+	else if r(mean)*r(N)==0 |r(mean)*r(N)==r(N){
+		mat tab[`r',`c']=r(mean)*100
+		}
+	else{
+		di "small cell for `x' & `y'"
+		mat tab[`r',`c']=.
+		mat stars [`r',`c']=1
+		}
+		local r=`r'+1
+}
+
+sum popn if `y'==1
+mat tab[`r',`c']==r(N)
+local r=1
+local c = `c'+1
+}
+
+mat rownames tab = `smi' Total
+
+frmttable using "smi_popln_p01_preval_events_`c(current_date)'.rtf", statmat(tab) title("SMI Unweighted %s (Restricted Cells)") ctitles("" "Dementia %" "ADL %" "NDSMC %" "None %" ) varlabels note("Dementia,NDSMC, ADL are not mutually exclusive groups.") annotate(stars) asymbol(NR) addtable
+
+restore 
+
+**Weighted Table, Unrestricted Cells
+preserve 
+gen popn=1
+
+svyset secu [pw=pwgtre], strata(stratum)
+
+local events dem adl_dependent ndsmc_ind none 
+local smi smi_dem_ind smi_cancer_ind smi_renal_ind smi_chf_ind smi_copd_ind smi_diab_comp~d smi_liver_ind smi_hiv_ind smi_neurodeg_~d smi_hip_ind smi_cva_ind    
+
+local rn : word count `smi' 1
+local r=1
+local c=1
+
+mat tab=J(`rn',4,.)
+mat stars=J(`rn',4,0)
+
+foreach y of local events {
+foreach x of local smi{
+svy, subpop(if `y'==1): mean `x'
+mat tab[`r',`c']=e(b)*100
+local r = `r'+1 
+}
+
+svy, subpop(if `y'==1): mean popn
+mat tab[`r',`c']== e(N_subpop)
+
+local r=1
+local c = `c'+1
+}
+
+mat rownames tab = `smi' "Estimated Population"
+
+frmttable using "smi_popln_p01_preval_events_`c(current_date)'.rtf", statmat(tab) title("SMI Weighted %s (Unrestricted Cells)") ctitles("" "Dementia %" "ADL %" "NDSMC %" "None %" ) varlabels note("Dementia,NDSMC, ADL are not mutually exclusive groups.") addtable  
+
+restore 
+
+**Weighted Table, Restricted Cell 
+preserve 
+gen popn=1
+
+svyset secu [pw=pwgtre], strata(stratum)
+
+local events dem adl_dependent ndsmc_ind none 
+local smi smi_dem_ind smi_cancer_ind smi_renal_ind smi_chf_ind smi_copd_ind smi_diab_comp~d smi_liver_ind smi_hiv_ind smi_neurodeg_~d smi_hip_ind smi_cva_ind    
+
+local rn : word count `smi' 1
+local r=1
+local c=1
+
+mat tab=J(`rn',4,.)
+mat stars=J(`rn',4,0)
+
+foreach y of local events {
+foreach x of local smi{
+svy, subpop(if `y'==1): mean `x'
+local mean e(b)
+
+sum `x' if `y'==1
+	if r(mean)*r(N)>=11 & r(mean)*r(N)<=r(N)-11{
+		mat tab[`r',`c']=`mean'*100
+		}
+	else if r(mean)*r(N)==0 |r(mean)*r(N)==r(N){
+		mat tab[`r',`c']=`mean'*100
+		}
+	else{
+		di "small cell for `x' & `y'"
+		mat tab[`r',`c']=.
+		mat stars [`r',`c']=1
+		}
+		local r=`r'+1
+}
+
+svy, subpop(if `y'==1): mean popn
+mat tab[`r',`c']== e(N_subpop)
+
+local r=1
+local c = `c'+1
+}
+
+mat rownames tab = `smi' "Estimated Population"
+
+frmttable using "smi_popln_p01_preval_events_`c(current_date)'.rtf", statmat(tab) title("SMI Weighted %s (Restricted Cells)") ctitles("" "Dementia %" "ADL %" "NDSMC %" "None %" ) varlabels note("Dementia,NDSMC, ADL are not mutually exclusive groups.") annotate(stars) asymbol(NR) addtable  
+
+restore 
+
+H="Utilization Graphs by Events using PutExcel"
+/*
+Updated By: CY
+Date Updated: 4/21/21
+
+*P01 Utilization Graphs by Events using PutExcel
+*/
+
+*ssc install pvenn
+use "${intpath}\p01_preval_2016_ffsrestr_sample", clear
+
+*use 2016 core_years only! 
+*sum wgtr pwgtr if core_year ==2016
+svyset secu [pw=wgtr], strata(stratum)
+
+*missing claims info for people after Dec 2016
+gen popn = 1
+
+*sum ind_hosp_adm_12m ind_em_ur_adm_12m ind_em_adm_12m ind_ur_adm_12m ind_ed_adm_12m ind_snf_use_12m ind_ed_op_12m ind_hosp_adm_p12m ind_em_ur_adm_p12m ind_em_adm_p12m ind_ur_adm_p12m ind_elect_adm_p12m ind_ed_adm_p12m ind_snf_use_p12m ind_ed_op_p12m
+
+**all indicators 
+*tab1 ind_hosp_adm_12m ind_hosp_adm_p12m  ind_em_adm_12m ind_em_adm_p12m ind_em_ur_adm_12m ind_em_ur_adm_p12m  ind_ed_adm_12m ind_ed_adm_p12m ind_ur_adm_12m ind_ur_adm_p12m ind_snf_use_12m ind_snf_use_p12m ind_ed_op_12m ind_ed_op_p12m ind_elect_adm_12m ind_elect_adm_p12m
+
+*ed visits, inpt, outpt 
+*sum n_em_admit_12m  n_em_admit_p12m n_ip_admit_12m n_ip_admit_p12m  n_ed_op_visits_12m n_ed_op_visits_p12m
+
+*tab1 ind_em_adm_12m ind_em_adm_p12m ind_ed_op_12m ind_ed_op_p12m, m
+
+*check missing
+*misstable sum n_em_admit_12m  n_em_admit_p12m n_ip_admit_12m n_ip_admit_p12m  n_ed_op_visits_12m n_ed_op_visits_p12m
+*
+
+*make all the missing obs to 0 
+local util ind_hosp_adm_12m ind_hosp_adm_p12m  ind_em_adm_12m ind_em_adm_p12m ind_em_ur_adm_12m ind_em_ur_adm_p12m  ind_ed_adm_12m ind_ed_adm_p12m ind_ur_adm_12m ind_ur_adm_p12m ind_snf_use_12m ind_snf_use_p12m ind_ed_op_12m ind_ed_op_p12m ind_elect_adm_12m ind_elect_adm_p12m
+
+foreach x of local util{
+replace `x'=0 if `x'==.
+tab `x', m
+}
+
+*sum n_ip_admit_12m n_ip_admit_p12m 
+
+*create indicator for IP  
+*gen ind_ip_admit_12m = n_ip_admit_12m > 0 & n_ip_admit_12m!=. 
+*gen ind_ip_admit_p12m = n_ip_admit_p12m > 0 & n_ip_admit_p12m!=.
+*label var ind_ip_admit_12m "Indicator any IP(hospital) admission, 1 yr pre ivw "
+*label var ind_ip_admit_p12m "Indicator any IP(hospital) admission, 1 yr post ivw "
+
+local events dem_only adl_only ndsmc_only dem_ndsmc_only dem_adl_only adl_ndsmc_only all none dem adl_dependent ndsmc_ind
+*local util_cont n_em_admit_12m n_em_admit_p12m n_ip_admit_12m n_ip_admit_p12m n_ed_op_visits_12m n_ed_op_visits_p12m 
+local util_ind  ind_hosp_adm_12m ind_hosp_adm_p12m  ind_em_adm_12m ind_em_adm_p12m ind_em_ur_adm_12m ind_em_ur_adm_p12m  ind_ed_adm_12m ind_ed_adm_p12m ind_snf_use_12m ind_snf_use_p12m ind_ed_op_12m ind_ed_op_p12m 
+
+*excluded any urgent hosp & elective hosp admission bc small cell sizes (ind_ur_adm_12m ind_ur_adm_p12m ind_elect_adm_12m ind_elect_adm_p12m)
+
+
+local rows `util_cont' `util_ind' 
+
+putexcel set "graphs_utilization_`c(current_date)'", sheet(utilization, replace) replace
+
+tokenize A B C D E F G H I J K L M 
+local r = 2
+local c = 1 
+putexcel B1 = ("dem_only")
+
+foreach y of local events {
+putexcel ``=`c'+1''1= ("`y'")
+
+/*
+**These are for mean numbers of encounters.**
+foreach x of local util_cont{
+local labvarx: variable label `x' //row names
+putexcel A`r'= ("`labvarx'")
+di "below is `y' & `x' "
+sum `x' if `y'==1
+putexcel ``=`c'+1''`r'= (r(mean)), nformat(#.##)
+local r = `r'+1 
+}
+*/
+
+foreach z of local util_ind{
+local labvarz: variable label `z' //row names
+putexcel A`r'= ("`labvarz'")
+di "below is `y' & `z' "
+		sum `z' if  `y'==1
+		if r(mean)*r(N)>=11 & r(mean)*r(N)<=r(N)-11{
+		putexcel ``=`c'+1''`r'= (r(mean)), nformat(#.####)
+		}
+		else if r(mean)*r(N)==0 |r(mean)*r(N)==r(N){
+		putexcel ``=`c'+1''`r'= (r(mean)), nformat(#.####)
+		}
+		else{
+		di "small cell for `x' & `y'"
+		putexcel ``=`c'+1''`r'= ("Small Cell Size")
+		}
+		local r=`r'+1
+}
+
+sum popn if `y'==1
+putexcel A`r' = ("Total")
+putexcel ``=`c'+1''`r'= (r(N)), nformat(#.##)
+local r = 2
+local c =`=`c'+1'
+} 
+
+***Event Categories***
+local events dem_only adl_only ndsmc_only dem_ndsmc_only dem_adl_only adl_ndsmc_only all none
+
+local r=1
+local c=1
+putexcel set "graphs_utilization_`c(current_date)'", sheet(event_cats, replace) modify
+tokenize A B C D E 
+
+foreach x of local events{
+*local labvar: variable label `x' //dont need this line b/c no labels on vars 
+
+sum `x'
+putexcel A1 = ("dem_only")
+putexcel ``c''`r'= ("`x'")
+putexcel ``=`c'+1''`r'= (r(mean)*100), nformat(#.##)
+
+svy: mean `x'
+putexcel ``=`c'+3''`r'= ("wgtd_`x'")
+putexcel ``=`c'+4''`r'= (e(b)[1,1]*100), nformat(#.##)
+
+local r = `r'+1 
+}
+
+************************Weighted %s*************************
+local events dem_only adl_only ndsmc_only dem_ndsmc_only dem_adl_only adl_ndsmc_only all none dem adl_dependent ndsmc_ind
+*local util_cont n_em_admit_12m n_em_admit_p12m n_ip_admit_12m n_ip_admit_p12m n_ed_op_visits_12m n_ed_op_visits_p12m 
+local util_ind  ind_hosp_adm_12m ind_hosp_adm_p12m  ind_em_adm_12m ind_em_adm_p12m ind_em_ur_adm_12m ind_em_ur_adm_p12m  ind_ed_adm_12m ind_ed_adm_p12m ind_snf_use_12m ind_snf_use_p12m ind_ed_op_12m ind_ed_op_p12m 
+
+*excluded any urgent hosp & elective hosp admission bc small cell sizes (ind_ur_adm_12m ind_ur_adm_p12m ind_elect_adm_12m ind_elect_adm_p12m)
+
+local rows `util_cont' `util_ind' 
+
+putexcel set "graphs_utilization_`c(current_date)'", sheet(utilization_wgtd, replace) modify 
+
+tokenize A B C D E F G H I J K L M 
+local r = 2
+local c = 1 
+putexcel B1 = ("dem_only")
+
+foreach y of local events {
+putexcel ``=`c'+1''1= ("`y'")
+
+foreach z of local util_ind{
+local labvarz: variable label `z' //row names
+putexcel A`r'= ("`labvarz'")
+di "below is `y' & `z' "
+		sum `z' if  `y'==1
+		svy, subpop (if `y'==1): mean `z'		
+		putexcel ``=`c'+1''`r'= (e(b)[1,1]), nformat(#.####)
+		local r=`r'+1
+}
+
+svy, subpop(if `y'==1): mean popn 
+putexcel A`r' = ("Total")
+putexcel ``=`c'+1''`r'= (e(N_subpop)), nformat(#.##)
+local r = 2
+local c =`=`c'+1'
+} 
+
+
+H="Changelog"
+2/26/21
+--------
+get sample sizes of smi 
+
+1/29/20
+--------
+add weights to utilization & proportional venn diagrams 
+
+1/21/21
+-------
+The sample here is everyone who has core_year 2016 and also interviewed in 2016. Those who are captured under core_year 2016 but interviewed in 2017 and 2018 are not included here, due to FFS inclusion criteria. 
+Create utilization graphs by events and new table 1. 
+Claims data for post ivw utilization is on its way which will allow us to incl. those ivwd in 2017 & 2018
+
+
+12/2/20
+--------
+add all smi & hospital utilizations 
+
+11/23/20
+---------
+use 2016 FFS restricted dataset, troubleshoot proxy & ever smoke & all vars to make sure they are all 1 & 0, not 1 & missing. shape what the population looks like. pull in utilization/hospital from claims? comorbidities?
+merge in helper variable to add in caregiving measures. 

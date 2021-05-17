@@ -1,0 +1,1232 @@
+= V4 Outline MultiLine NoSorting TabWidth=30
+
+H="Code to get dataset for Sankey diagram"
+ma "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\sp_round_1_8_public_sens_only.dta", clear
+replace homebound_cat=. if lml==1 | nhres==1
+forvalues i=2/8 {
+	by spid: replace prob_dem=. if wave==`i' & prob_dem[_n-1]==.
+}
+by spid: egen firsthb=min(cond(homebound_cat==1),wave,.)
+tab firsthb
+tab firsthb wave
+drop if missing(firsthb)
+gen status=1 if homebound_cat==4
+replace status=2 if inlist(homebound_cat,2,3)
+replace status=3 if inlist(homebound_cat,1)
+replace status=4 if nhres==1
+replace status=5 if sp_status==4
+by spid: gen nwstat=status[_n+1]
+replace nwstat=5 if missing(nwstat) & nhats_died_12==1
+forvalues i=2/8 {
+	replace nwstat=5 if r`i'status==86 & wave==`i'-1
+	replace nwstat=4 if r`i'status==64 & wave==`i'-1 & nhres==1
+
+}
+
+by spid: replace nwstat=nwstat[_n+1] if nwstat[_n+1]==status & missing(nwstat)
+by spid: replace nwstat=status if missing(nwstat) & !missing(nwstat[_n+1])
+replace nwstat=6 if missing(nwstat)
+label define nwstat 1 "(1) Independent" 2 "(2) Semi-HB" 3 "(3) HB" 4 "(4) NH" 5 "(5) Dead" 6 "LFU" 7 "Censored"
+label values nwstat nwstat
+replace nwstat=7 if wave==8
+drop if wave<firsthb
+drop if firsthb==year-2010 | firsthb==8
+sort spid wave 
+by spid: gen t=_n
+label values status nwstat
+
+preserve
+tab t
+drop if lml==1
+replace nwstat=6 if status==4 & nwstat<3
+tab status nwstat if nwstat<6, row nokey
+tab status nwstat if nwstat<6 & t==1, row nokey
+tab status nwstat if nwstat<6 & t>1, row nokey
+
+
+keep spid nwstat t
+reshape wide nwstat, i(spid) j(t)
+gen nwstat0=3
+label define nwstat0 3 "Incident HB"
+label values nwstat0 nwstat0
+forvalues i=1/7 {
+	replace nwstat`i'=nwstat`=`i'-1' if inlist(nwstat`=`i'-1',5/*,7*/)
+	*replace nwstat`i'=nwstat`=`i'-1' if missing(nwstat`i') & inlist(nwstat`=`i'-1',5,6,7)
+}
+restore
+
+keep spid nwstat t
+expand 2
+sort spid t
+by spid: replace t=0 if _n==1
+duplicates drop
+replace nwstat=0 if t==0
+label define nwstat 0 "Incident HB", modify
+rename nwstat status
+label var status "Status at current wave"
+label var t "Time from incident homebound"
+sort spid t
+by spid: replace status=5 if status[_n-1]==5
+
+forvalues i=1/7 {
+expand 2
+sort spid t
+by spid: replace t=t+1 if _n==_N
+duplicates drop
+}
+drop if t>7
+
+
+/*local n=0
+local fdenom=10000
+forvalues t=2/2 {
+	qui sum status if t==`t' & status<6
+	if `t'>1 local fdenom=r(N)
+	forvalues n1=0/4 {
+		qui sum prevstat if t==`t' & prevstat==`n1' & status<6
+		local denom=r(N)
+		di "t=`t', n1=`n1', denom=`denom'
+		forvalues i=1/5 {
+			qui sum status if t==`t' & prevstat==`n1' & status==`i'
+			local numer=r(N)
+			di `numer'
+			qui replace stat`t'=`i' if inrange(_n,`n'+1,`n'+round((`numer'/`denom')*`fdenom')) & `denom'>0
+			if `denom'>0 local n=`n'+round((`numer'/`denom')*`fdenom') 
+			di "n=`n'"
+}
+		qui replace stat`t'=5 if missing(stat`t') & _n<=round(`fdenom'/`denom') & `denom'>0
+		qui replace stat`t'=5 if missing(stat`t') & `denom'==0
+		if `denom'>0 local n=round(`fdenom'/`denom') 
+		di "n=`n'"
+		qui replace stat`t'=. if _n>1000
+}
+	local n=0
+	label define stat`t' 0 "Incident HB" 1 "(1) Independent" 2 "(2) Semi-HB" 3 "(3) HB" 4 "(4) NH" 5 "(5) Dead" 6 "LFU" 7 "Censored", modify
+	label values stat`t' stat`t'
+}*/
+replace status=. if status>=6
+levelsof status, local(levels)
+foreach l of local levels {
+	gen status`l'=status==`l'
+}
+
+sort spid t 
+by spid: gen prevstat=status[_n-1]
+
+gen n=_n
+gen stat0=0 if _n<=1000
+label define stat0 0 "100% Incident HB"
+label values stat0 stat0
+local n=0
+
+forvalues t=1/6 {
+	sort stat`=`t'-1'
+		gen stat`t'=.
+	label define stat`t' 0 "Incident HB" 1 "(1) Independent" 2 "(2) Semi-HB" 3 "(3) HB" 4 "(4) NH" 5 "(5) Dead" 6 "LFU" 7 "Censored", modify
+	label values stat`t' stat`t'
+	qui sum status if t==`t'
+	local denom=r(N)
+	forvalues n1=0/5 {
+		qui sum status if prevstat==`n1' & t==`t' & status<6
+		qui sum stat`=`t'-1' if stat`=`t'-1'==`n1' 
+
+		local d2=r(N)
+		if `d2'==. local d2=0
+				di "t=`t', n1=`n1', denom=`denom', d2=`d2'"
+
+		forvalues i=5(-1)1 {
+			qui sum status`i' if prevstat==`n1' & t==`t' & status<6
+			local m=r(mean)
+			if `d2'>0 {
+			di "range is `=`n'+1' to  `=`n'+round(`m'*`d2')'"
+			replace stat`t'=`i' if inrange(_n,`n'+1,`n'+round(r(mean)*`d2'))
+			local n=`n'+round(r(mean)*`d2')
+}
+			di "n=`n'"
+
+			
+}
+}
+	replace stat`t'=5 if stat`=`t'-1'==5
+	replace stat`t'=. if _n>1000
+	local n=0
+}
+
+
+replace stat6=5 if missing(stat6) & _n<=1000
+preserve
+keep spid stat*
+drop statu*		
+keep if _n<1001
+
+
+forvalues i=1/6 {
+	forvalues j=1/5 {
+		qui sum stat`i' if stat`i'==`j'
+		local pct`j'=round((r(N)/1000)*100)
+}
+	label define stat`i' 0 "Incident HB" 1 "(1) `pct1'% Independent" 2 "(2) `pct2'% Semi-HB" 3 "(3) `pct3'% HB" 4 "(4) `pct4'% NH" 5 "(5) `pct5'% Dead" 6 "LFU" 7 "Censored", modify
+}	
+
+
+H="a"
+use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\sp_round_1_8_public_sens_only.dta", clear
+replace homebound_cat=. if lml==1 | nhres==1
+forvalues i=2/8 {
+	by spid: replace prob_dem=. if wave==`i' & prob_dem[_n-1]==.
+}
+by spid: egen firsthb=min(cond(homebound_cat==1),wave,.)
+tab firsthb
+tab firsthb wave
+drop if missing(firsthb)
+gen status=1 if homebound_cat==4
+replace status=2 if inlist(homebound_cat,2,3)
+replace status=3 if inlist(homebound_cat,1)
+replace status=4 if nhres==1
+replace status=5 if sp_status==4
+by spid: gen nwstat=status[_n+1]
+replace nwstat=5 if missing(nwstat) & nhats_died_12==1
+forvalues i=2/8 {
+	replace nwstat=5 if r`i'status==86 & wave==`i'-1
+	replace nwstat=4 if r`i'status==64 & wave==`i'-1 & nhres==1
+
+}
+
+by spid: replace nwstat=nwstat[_n+1] if nwstat[_n+1]==status & missing(nwstat)
+by spid: replace nwstat=status if missing(nwstat) & !missing(nwstat[_n+1])
+replace nwstat=6 if missing(nwstat)
+label define nwstat 1 "(1) Independent" 2 "(2) Semi-HB" 3 "(3) HB" 4 "(4) NH" 5 "(5) Dead" 6 "LFU" 7 "Censored"
+label values nwstat nwstat
+replace nwstat=7 if wave==8
+drop if wave<firsthb
+drop if firsthb==year-2010 | firsthb==8
+sort spid wave 
+by spid: gen t=_n
+label values status nwstat
+
+preserve
+tab t
+drop if lml==1
+replace nwstat=6 if status==4 & nwstat<3
+tab status nwstat if nwstat<6, row nokey
+tab status nwstat if nwstat<6 & t==1, row nokey
+tab status nwstat if nwstat<6 & t>1, row nokey
+
+
+keep spid nwstat t
+reshape wide nwstat, i(spid) j(t)
+gen nwstat0=3
+label define nwstat0 3 "Incident HB"
+label values nwstat0 nwstat0
+forvalues i=1/7 {
+	replace nwstat`i'=nwstat`=`i'-1' if inlist(nwstat`=`i'-1',5/*,7*/)
+	*replace nwstat`i'=nwstat`=`i'-1' if missing(nwstat`i') & inlist(nwstat`=`i'-1',5,6,7)
+}
+restore
+
+keep spid nwstat t
+expand 2
+sort spid t
+by spid: replace t=0 if _n==1
+duplicates drop
+replace nwstat=0 if t==0
+label define nwstat 0 "Incident HB", modify
+rename nwstat status
+label var status "Status at current wave"
+label var t "Time from incident homebound"
+sort spid t
+by spid: replace status=5 if status[_n-1]==5
+
+forvalues i=1/s {
+expand 2
+sort spid t
+by spid: replace t=t+1 if _n==_N
+duplicates drop
+}
+drop if t>7
+
+saveold "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Ornstein_R01_homebound\post_incident_hb\data\markov_data.dta", replace version(12)
+/*local n=0
+local fdenom=10000
+forvalues t=2/2 {
+	qui sum status if t==`t' & status<6
+	if `t'>1 local fdenom=r(N)
+	forvalues n1=0/4 {
+		qui sum prevstat if t==`t' & prevstat==`n1' & status<6
+		local denom=r(N)
+		di "t=`t', n1=`n1', denom=`denom'
+		forvalues i=1/5 {
+			qui sum status if t==`t' & prevstat==`n1' & status==`i'
+			local numer=r(N)
+			di `numer'
+			qui replace stat`t'=`i' if inrange(_n,`n'+1,`n'+round((`numer'/`denom')*`fdenom')) & `denom'>0
+			if `denom'>0 local n=`n'+round((`numer'/`denom')*`fdenom') 
+			di "n=`n'"
+}
+		qui replace stat`t'=5 if missing(stat`t') & _n<=round(`fdenom'/`denom') & `denom'>0
+		qui replace stat`t'=5 if missing(stat`t') & `denom'==0
+		if `denom'>0 local n=round(`fdenom'/`denom') 
+		di "n=`n'"
+		qui replace stat`t'=. if _n>1000
+}
+	local n=0
+	label define stat`t' 0 "Incident HB" 1 "(1) Independent" 2 "(2) Semi-HB" 3 "(3) HB" 4 "(4) NH" 5 "(5) Dead" 6 "LFU" 7 "Censored", modify
+	label values stat`t' stat`t'
+}*/
+replace status=. if status>=6
+levelsof status, local(levels)
+foreach l of local levels {
+	gen status`l'=status==`l'
+}
+
+sort spid t 
+by spid: gen prevstat=status[_n-1]
+
+gen n=_n
+gen stat0=0 if _n<=1000
+label define stat0 0 "100% Incident HB"
+label values stat0 stat0
+local n=0
+
+forvalues t=1/6 {
+	sort stat`=`t'-1'
+		gen stat`t'=.
+	label define stat`t' 0 "Incident HB" 1 "(1) Independent" 2 "(2) Semi-HB" 3 "(3) HB" 4 "(4) NH" 5 "(5) Dead" 6 "LFU" 7 "Censored", modify
+	label values stat`t' stat`t'
+	qui sum status if t==`t'
+	local denom=r(N)
+	forvalues n1=0/5 {
+		qui sum status if prevstat==`n1' & t==`t' & status<6
+		qui sum stat`=`t'-1' if stat`=`t'-1'==`n1' 
+
+		local d2=r(N)
+		if `d2'==. local d2=0
+				di "t=`t', n1=`n1', denom=`denom', d2=`d2'"
+
+		forvalues i=5(-1)1 {
+			qui sum status`i' if prevstat==`n1' & t==`t' & status<6
+			local m=r(mean)
+			if `d2'>0 {
+			di "range is `=`n'+1' to  `=`n'+round(`m'*`d2')'"
+			replace stat`t'=`i' if inrange(_n,`n'+1,`n'+round(r(mean)*`d2'))
+			local n=`n'+round(r(mean)*`d2')
+}
+			di "n=`n'"
+
+			
+}
+}
+	replace stat`t'=5 if stat`=`t'-1'==5
+	replace stat`t'=. if _n>1000
+	local n=0
+}
+
+
+replace stat6=5 if missing(stat6) & _n<=1000
+preserve
+keep spid stat*
+drop statu*		
+keep if _n<1001
+
+
+forvalues i=1/6 {
+	forvalues j=1/5 {
+		qui sum stat`i' if stat`i'==`j'
+		local pct`j'=round((r(N)/1000)*100)
+}
+	label define stat`i' 0 "Incident HB" 1 "(1) `pct1'% Independent" 2 "(2) `pct2'% Semi-HB" 3 "(3) `pct3'% HB" 4 "(4) `pct4'% NH" 5 "(5) `pct5'% Dead" 6 "LFU" 7 "Censored", modify
+}	
+
+
+H="r"
+
+library(foreign)
+mydata <- read.dta("J:/Geriatrics/PCare/HRS Projects/Data & Project-based (reference docs, etc)/NHATS/Ornstein_R01_homebound/post_incident_hb/data/markov_data_nowt.dta")
+
+
+library(msm)
+
+qm2 <- rbind ( c(0,.15,.15,.15,.15),c(.15,0,.15,.15,.15), c(.15,.15,0,.15,.15),  c(.15,.15,.15,0,.15), c(0,0,0,0,0))
+
+#this all runs, though the interpretation of the pnext isn't clear to me
+rownames(qm2) <- colnames(qm2) <- c("Independent", "Semi-HB", "HB", "NH",  "Dead") 
+mydata.msm <- msm(state ~ t, subject=spid, data=mydata, qmatrix=qm2)
+mydata.msm
+pmatrix.msm(mydata.msm)
+plot.msm(mydata.msm)
+sojourn.msm(mydata.msm)
+totlos.msm(mydata.msm)
+pnext.msm(mydata.msm)
+
+
+#works
+withvars.msm <- msm(state ~ t, subject=spid, data=mydata, qmatrix=qm2, covariates=~ female educ_hs_ind)
+withvars.msm
+pmatrix.msm(withvars.msm)
+plot.msm(withvars.msm)
+sojourn.msm(withvars.msm)
+totlos.msm(withvars.msm)
+#doesn't work
+pnext.msm(withvars.msm)
+
+
+#doesn't work
+withvars.msm <- msm(state ~ t, subject=spid, data=mydata, qmatrix=qm2, covariates=~ age)
+#works
+withvars.msm <- msm(state ~ t, subject=spid, data=mydata, qmatrix=qm2, covariates=~ age75 female educ_hs_ind)
+
+
+
+
+H="get data for markov, incident"
+use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\sp_round_1_8_public_sens_only.dta" if year==2011, clear
+
+replace anfinwgt=an2011wgt if wave>=5
+
+
+
+replace homebound_cat=. if lml==1 | nhres==1
+forvalues i=2/8 {
+	by spid: replace prob_dem=. if wave==`i' & prob_dem[_n-1]==.
+}
+by spid: egen firsthb=min(cond(homebound_cat==1),wave,.)
+tab firsthb
+tab firsthb wave
+drop if missing(firsthb)
+gen status=1 if homebound_cat==4
+replace status=2 if inlist(homebound_cat,2,3)
+replace status=3 if inlist(homebound_cat,1)
+replace status=4 if nhres==1
+replace status=5 if sp_status==4
+by spid: gen nwstat=status[_n+1]
+replace nwstat=5 if missing(nwstat) & nhats_died_12==1
+forvalues i=2/8 {
+	replace nwstat=5 if r`i'status==86 & wave==`i'-1
+	replace nwstat=4 if r`i'status==64 & wave==`i'-1 & nhres==1
+
+}
+
+by spid: replace nwstat=nwstat[_n+1] if nwstat[_n+1]==status & missing(nwstat)
+by spid: replace nwstat=status if missing(nwstat) & !missing(nwstat[_n+1])
+replace nwstat=6 if missing(nwstat)
+label define nwstat 1 "(1) Independent" 2 "(2) Semi-HB" 3 "(3) HB" 4 "(4) NH" 5 "(5) Dead" 6 "LFU" 7 "Censored"
+label values nwstat nwstat
+replace nwstat=7 if wave==8
+drop if wave<firsthb
+drop if firsthb==year-2010 | firsthb==8
+sort spid wave 
+by spid: gen t=_n
+label values status nwstat
+
+
+
+sort spid wave
+by spid: replace anfinw=anfinw[_n-1] if status==5
+by spid: replace anfinw=anfinw[_n-1] if status==4 & !anfinw
+by spid: replace anfinw=anfinw[_n-1] if !anfinw & rcfres==1
+
+//old
+/*
+preserve
+tab t
+drop if lml==1
+replace nwstat=6 if status==4 & nwstat<3
+tab status nwstat if nwstat<6, row nokey
+tab status nwstat if nwstat<6 & t==1, row nokey
+tab status nwstat if nwstat<6 & t>1, row nokey
+
+
+keep spid nwstat t
+reshape wide nwstat, i(spid) j(t)
+gen nwstat0=3
+label define nwstat0 3 "Incident HB"
+label values nwstat0 nwstat0
+forvalues i=1/7 {
+	replace nwstat`i'=nwstat`=`i'-1' if inlist(nwstat`=`i'-1',5/*,7*/)
+	*replace nwstat`i'=nwstat`=`i'-1' if missing(nwstat`i') & inlist(nwstat`=`i'-1',5,6,7)
+}
+restore
+*/
+
+keep spid anfinwgt nwstat t educ_hs_ind female prob_dem age wave income_quart married
+expand 2
+sort spid t
+by spid: replace t=0 if _n==1
+duplicates drop
+replace nwstat=0 if t==0
+label define nwstat 0 "Incident HB", modify
+rename nwstat status
+label var status "Status at current wave"
+label var t "Time from incident homebound"
+sort spid t
+by spid: replace status=5 if status[_n-1]==5
+
+forvalues i=1/7 {
+expand 2
+sort spid t
+by spid: replace t=t+1 if _n==_N
+duplicates drop
+}
+drop if t>7
+
+
+/*local n=0
+local fdenom=10000
+forvalues t=2/2 {
+	qui sum status if t==`t' & status<6
+	if `t'>1 local fdenom=r(N)
+	forvalues n1=0/4 {
+		qui sum prevstat if t==`t' & prevstat==`n1' & status<6
+		local denom=r(N)
+		di "t=`t', n1=`n1', denom=`denom'
+		forvalues i=1/5 {
+			qui sum status if t==`t' & prevstat==`n1' & status==`i'
+			local numer=r(N)
+			di `numer'
+			qui replace stat`t'=`i' if inrange(_n,`n'+1,`n'+round((`numer'/`denom')*`fdenom')) & `denom'>0
+			if `denom'>0 local n=`n'+round((`numer'/`denom')*`fdenom') 
+			di "n=`n'"
+}
+		qui replace stat`t'=5 if missing(stat`t') & _n<=round(`fdenom'/`denom') & `denom'>0
+		qui replace stat`t'=5 if missing(stat`t') & `denom'==0
+		if `denom'>0 local n=round(`fdenom'/`denom') 
+		di "n=`n'"
+		qui replace stat`t'=. if _n>1000
+}
+	local n=0
+	label define stat`t' 0 "Incident HB" 1 "(1) Independent" 2 "(2) Semi-HB" 3 "(3) HB" 4 "(4) NH" 5 "(5) Dead" 6 "LFU" 7 "Censored", modify
+	label values stat`t' stat`t'
+}*/
+replace status=. if status>=6
+levelsof status, local(levels)
+foreach l of local levels {
+	gen status`l'=status==`l'
+}
+
+sort spid t 
+by spid: gen prevstat=status[_n-1]
+drop if status==6
+
+gen n=_n
+gen stat0=0 if _n<=1000
+label define stat0 0 "100% Incident HB"
+label values stat0 stat0
+local n=0
+
+forvalues t=1/6 {
+	sort stat`=`t'-1'
+		gen stat`t'=.
+	label define stat`t' 0 "Incident HB" 1 "(1) Independent" 2 "(2) Semi-HB" 3 "(3) HB" 4 "(4) NH" 5 "(5) Dead" 6 "LFU" 7 "Censored", modify
+	label values stat`t' stat`t'
+	qui sum status if t==`t' 
+	local denom=r(N)
+	forvalues n1=0/5 {
+		qui sum status if prevstat==`n1' & t==`t' & status<6 [aw=anfinw]
+		qui sum stat`=`t'-1' if stat`=`t'-1'==`n1'  [aw=anfinw]
+
+		local d2=r(N)
+		if `d2'==. local d2=0
+				di "t=`t', n1=`n1', denom=`denom', d2=`d2'"
+
+		forvalues i=5(-1)1 {
+			qui sum status`i' if prevstat==`n1' & t==`t' & status<6 [aw=anfinw]
+			local m=r(mean)
+			if `d2'>0 {
+			di "range is `=`n'+1' to  `=`n'+round(`m'*`d2')'"
+			replace stat`t'=`i' if inrange(_n,`n'+1,`n'+round(r(mean)*`d2'))
+			local n=`n'+round(r(mean)*`d2')
+}
+			di "n=`n'"
+
+			
+}
+}
+	replace stat`t'=5 if stat`=`t'-1'==5
+	replace stat`t'=. if _n>1000
+	replace stat`t'=5 if missing(stat`t') & _n<=1000
+
+	local n=0
+}
+
+
+replace stat6=5 if missing(stat6) & _n<=1000
+replace stat1=5 if missing(stat1) & _n<=1000
+preserve
+keep spid anfinwgt stat* 
+drop statu*		anfinw
+keep if _n<1001
+
+
+forvalues i=1/6 {
+	forvalues j=1/5 {
+		qui sum stat`i' if stat`i'==`j' //[aw=anfinw]
+		local pct`j'=round((r(N)/1000)*100)
+}
+	label define stat`i' 0 "Incident HB" 1 "(1) `pct1'% Independent" 2 "(2) `pct2'% Semi-HB" 3 "(3) `pct3'% HB" 4 "(4) `pct4'% NH" 5 "(5) `pct5'% Dead" 6 "LFU" 7 "Censored", modify
+}	
+restore
+
+keep spid anfinw status educ female prob_dem t age wave income_quart married
+sort spid t
+by spid: egen a=min(age)
+replace age=a
+drop a
+
+gen age75=age>=75
+gen age85=age>=85
+
+
+by spid: drop if status[_n-1]==5
+gen wt=round(anfinw/1000) if t==1
+by spid: carryforward wt, replace
+expand wt
+drop anfinw wt
+tostring spid, gen(strid)
+sort spid t 
+by spid t: gen n=_n
+gen spidwt=strid+string(n)
+drop n 
+gen state=status
+drop if missing(state)
+drop if state==0
+sort spidwt t
+by spidwt: drop if _N==1
+saveold "J:/Geriatrics/PCare/HRS Projects/Data & Project-based (reference docs, etc)/NHATS/Ornstein_R01_homebound/post_incident_hb/data/markov_data_wt.dta", version(12) replace
+
+drop spidwt 
+duplicates drop
+saveold "J:/Geriatrics/PCare/HRS Projects/Data & Project-based (reference docs, etc)/NHATS/Ornstein_R01_homebound/post_incident_hb/data/markov_data_nowt.dta", version(12) replace
+
+H="get dataset for markov, full"
+set seed 060883
+
+use spid wave homebound_cat using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\sp_round_1_8_public_sens_only.dta" if wave==1 & !missing(homebound_cat), clear
+gen norm=rnormal()
+sort norm
+//gen keep=_n<=_N/3
+
+drop wave ho
+
+merge 1:m spid using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\sp_round_1_8_public_sens_only.dta", keep(match)
+
+gen t=wave
+drop if !sp_ivw
+
+
+
+foreach x of varlist spid prob_dem homebound_cat nhres *died_12 female *hs* adl_impair married t lml {
+drop if missing(`x') & !lml
+}
+gen status=1 if homebound_cat==4
+replace status=2 if inlist(homebound_cat,2,3)
+replace status=3 if homebound_cat==1
+replace status=4 if nhres==1
+sort spid t
+replace status=5 if lml==1
+tab status,m
+by spid: drop if _N==1
+preserve
+keep spid prob_dem homebound_cat nhres *died_12 female *hs* adl_impair married t lml white medicaid age status prob_dem sr_numconditions1
+tab homebou lml, m
+
+saveold "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Ornstein_R01_homebound\post_incident_hb\data\markov_full.dta", version(12) replace
+
+gen a=1 if status==4 & status[_n-1]!=4 & status[_n+1]!=4 & status[_n+1]!=5 & spid[_n-1]==spid & spid==spid[_n+1]
+gen b=1 if status==4  & status[_n+1]!=4 & status[_n+1]!=5 & spid[_n-1]==spid & spid==spid[_n+1]
+
+gen c=1 if status==4 & status[_n+1]==4 & status[_n-1]!=4  & spid[_n-1]==spid & spid==spid[_n+1] & spid==spid[_n+2] & status[_n+2]!=4 & status[_n+2]!=5
+
+replace status=status[_n-1] if c==1
+
+replace status=status[_n-1] if b==1
+
+keep spid prob_dem homebound_cat nhres *died_12 female *hs* adl_impair married t lml white medicaid age status prob_dem sr_numconditions1
+
+saveold "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Ornstein_R01_homebound\post_incident_hb\data\markov_full_nh.dta", version(12) replace
+
+restore
+
+gen age_85=0 if age<85
+replace age_85=1 if age>=85
+
+
+gen n=1
+
+local ivars age_85 female white educ_hs_ind married medicaid adl_impair prob_dem
+
+local rn: word count `ivars' 1 
+
+
+mat tab=J(`rn',4,.)
+mat stars=J(`rn',4,0)
+local r=1
+local c=1
+
+forvalues i=1/4 {
+	foreach a in `ivars'{
+		sum `a' if status==`i'
+		if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0 {
+			mat tab[`r',`c']=`r(mean)'*100
+			tab `a' status if (status==`i' | status==1), chi2
+			mat stars[`r',`c']=(r(p)<.01) + (r(p)<.05)
+			local r=`r'+1
+			}
+		sum n if status==`i'
+		mat tab[`r',`c']=`r(N)'
+		}
+	local r=1
+	local c=`c'+1
+}
+
+mat rownames tab= "Age >=85" "Female" "White" "Education HS+" "Married" "Medicaid" "Help with 1+ ADL" "Probable Dementia" "N"
+mat colnames tab= "Independent, %" "Semi-Homebound, %" "Homebound, %" "Nursing Home, %" 
+mat list tab
+
+frmttable using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Ornstein_R01_homebound\markov_hb\logs\tables.rtf", replace statmat(tab) title("Table 1: Demographics by Status") sdec(2) annotate(stars) asymbol(*,**) varlabels 
+
+preserve
+keep if wave==1
+
+local ivars age_85 female white educ_hs_ind married medicaid adl_impair prob_dem
+
+local rn: word count `ivars' 1 
+
+
+mat tab=J(`rn',3,.)
+mat stars=J(`rn',3,0)
+local r=1
+local c=1
+
+forvalues i=1/3 {
+	foreach a in `ivars'{
+		sum `a' if status==`i'
+		if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0 {
+			mat tab[`r',`c']=`r(mean)'*100
+			tab `a' status if (status==`i' | status==1), chi2
+			mat stars[`r',`c']=(r(p)<.01) + (r(p)<.05)
+			local r=`r'+1
+			}
+		sum n if status==`i'
+		mat tab[`r',`c']=`r(N)'
+		}
+	local r=1
+	local c=`c'+1
+}
+
+mat rownames tab= "Age >=85" "Female" "White" "Education HS+" "Married" "Medicaid" "Help with 1+ ADL" "Probable Dementia" "N"
+mat colnames tab= "Independent, %" "Semi-Homebound, %" "Homebound, %" 
+mat list tab
+
+frmttable using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Ornstein_R01_homebound\markov_hb\logs\tables.rtf", replace statmat(tab) title("Table 2: Demographics by Status, wave 1") sdec(2) annotate(stars) asymbol(*,**) varlabels addtable
+
+H="***************************"
+
+
+H="tot"
+set seed 060883
+
+use spid wave homebound_cat using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\sp_round_1_8_public_sens_only.dta" if wave==1 & !missing(homebound_cat), clear
+gen norm=rnormal()
+sort norm
+//gen keep=_n<=_N/3
+
+drop wave ho
+
+merge 1:m spid using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\base_data\sp_round_1_8_public_sens_only.dta", keep(match)
+
+gen t=wave
+drop if !sp_ivw
+
+
+
+foreach x of varlist spid prob_dem homebound_cat nhres *died_12 female *hs* adl_impair married t lml {
+drop if missing(`x') & !lml
+}
+gen status=1 if homebound_cat==4
+replace status=2 if inlist(homebound_cat,2,3)
+replace status=3 if homebound_cat==1
+replace status=4 if nhres==1
+sort spid t
+replace status=5 if lml==1
+tab status,m
+by spid: drop if _N==1
+preserve
+keep spid prob_dem homebound_cat nhres *died_12 female *hs* adl_impair married t lml white medicaid age status prob_dem sr_numconditions1
+tab homebou lml, m
+
+saveold "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Ornstein_R01_homebound\post_incident_hb\data\markov_full.dta", version(12) replace
+
+restore 
+
+gen a=1 if status==4 & status[_n-1]!=4 & status[_n+1]!=4 & status[_n+1]!=5 & spid[_n-1]==spid & spid==spid[_n+1]
+gen b=1 if status==4  & status[_n+1]!=4 & status[_n+1]!=5 & spid[_n-1]==spid & spid==spid[_n+1]
+
+gen c=1 if status==4 & status[_n+1]==4 & status[_n-1]!=4  & spid[_n-1]==spid & spid==spid[_n+1] & spid==spid[_n+2] & status[_n+2]!=4 & status[_n+2]!=5
+
+replace status=status[_n-1] if c==1
+
+replace status=status[_n-1] if b==1
+
+gen sr_numconditions2=sr_numconditions1-1 if prob_dem==1 
+
+gen sr_plus=.
+replace sr_plus=0 if sr_numconditions2<2
+replace sr_plus=1 if sr_numconditions2>=2
+
+preserve
+keep spid prob_dem homebound_cat nhres *died_12 female *hs* adl_impair married t lml white medicaid age status prob_dem sr_numconditions1 sr_numconditions2 sr_plus
+
+saveold "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Ornstein_R01_homebound\post_incident_hb\data\markov_full_nh.dta", version(12) replace
+restore
+
+H="Table 1"
+
+gen age_85=0
+replace age_85=1 if age>=85
+label var age_85 "Age 85+"
+
+label var sr_plus "2+ SR conditions"
+
+
+
+preserve
+gen n=1
+keep if t==1
+
+local cvars1 age
+local ivars1 age_85 female white black other_race hisp educ_hs_ind married 
+local ivars2  proxy  ///
+medicaid medigap srh_fp adl_eat_help adl_bath_help adl_toil_help adl_dres_help ///
+adl_ins_help adl_bed_help adl_impair iadl_impair ///
+sr_plus  ///
+prob_dem adl_diff_ind adl_independent metro_ind northeast midwest south west /*///
+fin_strain mealskip nopayhous nopayutil nopaymed anydebt creditdebt medpaynotcash finhlpfam meals_wheels govtasst*/
+
+
+local rn : word count 1 `cvars1'  `ivars1' `ivars2' 1 
+di `rn'
+mat tab=J(`rn',3,.)
+mat stars=J(`rn',3,0)
+local r=1
+local c=1
+
+forvalues i=1/3{
+	foreach x in `cvars1' {
+		sum `x' if status==`i'
+			if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0 {
+			mat tab[`r',`c']=`r(mean)'
+			reg status `x' if status==`i' | status==1
+			test `x'
+			mat stars[`r',`c']=(r(p)<.01) + (r(p)<.05)
+			}
+		local r=`r'+1
+}
+
+	foreach x in `ivars1' {
+		sum `x' if status==`i'
+			if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0 {
+			mat tab[`r',`c']=`r(mean)'*100
+			tab `x' status if status==`i' | status==1, chi2
+			mat stars[`r',`c']=(r(p)<.01) + (r(p)<.05)
+			}
+		local r=`r'+1
+}		
+	foreach x in `ivars2' {
+		sum `x' if status==`i'
+			if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0 {
+			mat tab[`r',`c']=`r(mean)'*100
+			tab `x' status if status==`i' | status==1, chi2
+			mat stars[`r',`c']=(r(p)<.01) + (r(p)<.05)
+			}
+		local r=`r'+1
+}
+
+sum n if status==`i'
+mat tab[`r'+1,`c']=r(N)
+local r=1
+local c=`c'+1
+} 
+
+
+mat rownames tab=`cvars1' `ivars1' `ivars2' "_" N 
+mat colnames tab= "Independent" "Semi-Homebound" "Homebound"
+mat list tab
+
+mat list tab
+mat list stars
+
+frmttable using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\NHATS\Ornstein_R01_homebound\markov_hb\logs\table1.rtf", replace statmat(tab) ///
+ title("Table 1: Wave 1 Characteristics by Status") ///
+ sdec(2) annotate(stars) asymbol(*,**) note("*p<.05; **p<.01" ) ///
+ varlabels   
+
+
+H="markov code--no variables"
+---
+title: "Markov Model No Covariates"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+Markov Setup Code-
+We are setting up the Markov multi-state model and showing the transition intensities. 
+
+
+```{r Markov Model Setup No Covariates}
+
+library(foreign)
+mydata <- read.dta("C:\\Users\\Mohammed\\Documents\\markov_full_nh_12.dta")
+
+mydata$age_85[mydata$age<85]<-0
+mydata$age_85[mydata$age>=85]<-1
+mydata$time<-mydata$t-1
+
+mydata$sr_plus[mydata$sr_numconditions1<2]<-0
+mydata$sr_plus[mydata$sr_numconditions1>=2]<-1
+
+library(msm)
+#Below shows the frequency of going from one state to another state at any time. 
+statetable.msm(status, spid, data=mydata)
+
+#Inital transition matrix created based off of frequencies going from one state to another. 
+qm2 <- rbind ( c(0,.30,.10,.05,.15),c(.20,0,.15,.07,.15), c(.15,.05,0,.05,.17),  c(0,0,0,0,.20), c(0,0,0,0,0))
+rownames(qm2) <- colnames(qm2) <- c("Independent", "Semi-HB", "HB", "NH",  "Dead")
+qm2
+# maximum likelihood estimates 
+mydata.msm <- msm(status ~ time, subject=spid, data=mydata, qmatrix=qm2, method = "BFGS", use.deriv = TRUE, control = list(fnscale = 2000, maxit = 5000), cl=0.95)
+mydata.msm
+
+
+```
+
+We observe that individuals are more than 7 times liklier to become semi-homebound than be homebound when they are start off being  indendent. We also observe that there is a higher likelihood of going from semi-homebound to independent than of becoming homebound. The homebound population has a 35% greater likelihood of becoming semi-homebound than of dying. Individuals in a nursing home are likely to be dead or still in nursing home in their next wave. Their status doesn't imporove. We can also observe the mean time they spend in each status. The independent state shows a mean of 1/-0.20 = 5 years; 5 years is the spent as being independent before moving to another state. 
+
+#```{r Bootstrapping}
+#pmatrix.msm(mydata.msm)
+#p.list<-boot.msm(mydata.msm, stat=pmatrix.msm)
+#p.list
+#```
+
+
+```{r Survival Plot}
+plot.msm(mydata.msm, legend.pos=c(10,10))
+legend( "bottomleft", c("Independent", "Semi-Homebound", "Homebound", "Nursing Home"), text.col=c("red", "green", "turquoise1", "purple") )
+```
+
+The plot creates an expected probability of survival against time for each state. Survival is defined as not dying. We observe that after 8-years the survival probability for being independent is 0.6. Nursing home after 1 years shows a 0.65 probability of survival. 
+
+
+```{r Prevalence}
+#We go back to the original model of time here. 
+r<-prevalence.msm(mydata.msm, times=0:7)
+r
+plot.prevalence.msm(mydata.msm, legend.pos=c(2, 100))
+```
+
+
+Prevalence tables show observed and expected numbers and percentages of individuals in each state by time.  
+
+
+
+```{r Probability Matrix }
+pmatrix.msm(mydata.msm)
+pmatrix.msm(mydata.msm, t=1, ci="norm")
+pmatrix.msm(mydata.msm, t=5, ci="norm")
+```
+The Probability Matrix shows the probability you start at a certain state and end up in another state. We also can specify a certain length of time such as after 5 or 10 waves. A person independent has an estimated probability of .47 of being dead after 10 years. 
+This assumes that the Q matrix is constant within that time. 
+
+
+
+```{r Sojourn Time}
+sojourn.msm(mydata.msm)
+```
+Mean sojourn time gives the estimated times in each transition state. This is the mean time a person is in a state.
+
+
+
+```{r Probability of next state}
+pnext.msm(mydata.msm)
+```
+Probability that a given state is the next state after this current state. 
+
+
+
+```{r Total Length in State}
+totlos.msm(mydata.msm)
+```
+Total length of stay gives the average period of time in a state, given multiple stays in a state. 
+
+
+H="markov code--with variables"
+---
+title: "Markov Model with Covariates"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+
+```{r Markov Model Setup With Multiple Covariates}
+
+library(foreign)
+mydata <- read.dta("C:\\Users\\Mohammed\\Documents\\markov_full_nh_12.dta")
+
+mydata$age_85[mydata$age<85]<-0
+mydata$age_85[mydata$age>=85]<-1
+mydata$time<-mydata$t-1
+
+
+mydata$sr_plus[mydata$sr_numconditions1<2]<-0
+mydata$sr_plus[mydata$sr_numconditions1>=2]<-1
+
+
+library(msm)
+#Below shows the frequency of going from one state to another state at any time. 
+statetable.msm(status, spid, data=mydata)
+
+#Inital transition matrix created based off of frequencies going from one state to another. 
+qm2 <- rbind ( c(0,.30,.10,.05,.15),c(.20,0,.15,.07,.15), c(.15,.05,0,.05,.17),  c(0,0,0,0,.20), c(0,0,0,0,0))
+rownames(qm2) <- colnames(qm2) <- c("Independent", "Semi-HB", "HB", "NH",  "Dead")
+qm2
+# maximum likelihood estimates
+mydata3.msm<- msm(status ~ time, subject=spid, data=mydata, qmatrix=qm2, method = "BFGS", use.deriv = TRUE, control = list(fnscale = 2000, maxit = 5000), covariates=~age_85+female+educ_hs_ind+white+sr_plus+prob_dem+married+adl_impair)
+#
+mydata3.msm
+
+
+```
+
+
+```{r Stratified Markov With Multiple Covariates}
+#qmatrix.msm(mydata3.msm)
+
+#qmatrix.msm(mydata3.msm)
+
+```
+
+
+```{r Prevalence}
+#We go back to the original model of time here. 
+r<-prevalence.msm(mydata3.msm, times=0:7)
+r
+plot.prevalence.msm(mydata3.msm, legend.pos=c(2, 100))
+
+
+```
+
+
+```{r Survival Plot With Multiple Covariates}
+plot.msm(mydata3.msm, legend.pos=c(10,10))
+legend( "bottomleft", c("Independent", "Semi-Homebound", "Homebound", "Nursing Home"), text.col=c("red", "green", "turquoise1", "purple") )
+```
+
+
+```{r Probability Matrix With Multiple Covariates}
+
+#pmatrix.msm(mydata3.msm, t=1, ci="norm", covariates="mean")
+#pmatrix.msm(mydata3.msm, t=1, ci="norm", covariates=list(prob_dem=1))
+#pmatrix.msm(mydata3.msm, t=1, ci="norm", covariates=list(prob_dem=0))
+#pmatrix.msm(mydata3.msm, t=1, ci="norm", covariates=list(age_85=0, female="Female", educ_hs_ind=1, white=1, prob_dem=0, sr_plus=1, married=0))
+#pmatrix.msm(mydata3.msm, t=1, ci="norm", covariates=list(age_85=0, female="Female", educ_hs_ind=1, white=1, prob_dem=1, sr_plus=1, married=0))
+
+
+#pmatrix.msm(mydata3.msm, t=1, ci="boot", covariates="mean", B=100)
+
+pmatrix.msm(mydata3.msm, t=1, ci="norm", covariates=list(prob_dem=1))
+pmatrix.msm(mydata3.msm, t=1, ci="norm", covariates=list(prob_dem=0))
+
+#pmatrix.msm(mydata3.msm, t=1, ci="boot", covariates=list(age_85=0, female="Female", educ_hs_ind=1, white=1, prob_dem=0, sr_plus=1, married=0), B=100)
+#pmatrix.msm(mydata3.msm, t=1, ci="boot", covariates=list(age_85=0, female="Female", educ_hs_ind=1, white=1, prob_dem=1, sr_plus=1, married=0 ), B=100)
+
+
+#pmatrix.msm(mydata3.msm, t=5, ci="norm", covariates="mean")
+#pmatrix.msm(mydata3.msm, t=5, ci="norm", covariates=list(prob_dem=1))
+#pmatrix.msm(mydata3.msm, t=5, ci="norm", covariates=list(prob_dem=0))
+#pmatrix.msm(mydata3.msm, t=5, ci="norm", covariates=list(age_85=0, female="Female", educ_hs_ind=1, white=1, prob_dem=0, sr_plus=1, married=0))
+#pmatrix.msm(mydata3.msm, t=5, ci="norm", covariates=list(age_85=0, female="Female", educ_hs_ind=1, white=1, prob_dem=1, sr_plus=1, married=0))
+
+
+#pmatrix.msm(mydata3.msm, t=5, ci="boot", covariates="mean", B=100)
+pmatrix.msm(mydata3.msm, t=5, ci="norm", covariates=list(prob_dem=1))
+pmatrix.msm(mydata3.msm, t=5, ci="norm", covariates=list(prob_dem=0))
+#pmatrix.msm(mydata3.msm, t=5, ci="boot", covariates=list(age_85=0, female="Female", educ_hs_ind=1, white=1, prob_dem=0, sr_plus=1, married=0), B=100)
+#pmatrix.msm(mydata3.msm, t=5, ci="boot", covariates=list(age_85=0, female="Female", educ_hs_ind=1, white=1, prob_dem=1, sr_plus=1, married=0), B=100)
+
+
+
+
+```
+
+```{r Sojourn Time With Multiple Covariates}
+sojourn.msm(mydata3.msm, ci = "norm")
+sojourn.msm(mydata3.msm, covariates=list(prob_dem=0))
+sojourn.msm(mydata3.msm, covariates=list(prob_dem=1))
+```
+
+```{r Probability of next state With Multiple Covariates}
+pnext.msm(mydata3.msm)
+```
+
+```{r Total Length in State With Multiple Covariates}
+totlos.msm(mydata3.msm)
+```
+
+H="markov code--prevalence and tests"
+---
+title: "markov_prevalence"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r Markov Model Setup With Multiple Covariates}
+
+library(foreign)
+mydata <- read.dta("C:\\Users\\Mohammed\\Documents\\markov_full_nh_12.dta")
+
+mydata$age_85[mydata$age<85]<-0
+mydata$age_85[mydata$age>=85]<-1
+mydata$time<-mydata$t-1
+
+
+mydata$sr_plus[mydata$sr_numconditions1<2]<-0
+mydata$sr_plus[mydata$sr_numconditions1>=2]<-1
+
+
+library(msm)
+#Below shows the frequency of going from one state to another state at any time. 
+statetable.msm(status, spid, data=mydata)
+
+#Inital transition matrix created based off of frequencies going from one state to another. 
+qm2 <- rbind ( c(0,.30,.10,.05,.15),c(.20,0,.15,.07,.15), c(.15,.05,0,.05,.17),  c(0,0,0,0,.20), c(0,0,0,0,0))
+rownames(qm2) <- colnames(qm2) <- c("Independent", "Semi-HB", "HB", "NH",  "Dead")
+qm2
+# maximum likelihood estimates
+mydata3.msm<- msm(status ~ time, subject=spid, data=mydata, qmatrix=qm2, method = "BFGS", use.deriv = TRUE, control = list(fnscale = 2000, maxit = 5000), covariates=~age_85+female+educ_hs_ind+white+sr_plus+prob_dem+married+adl_impair)
+#
+mydata3.msm
+
+
+```
+
+
+```{r Markov Assumption}
+library(markovchain)
+
+mydata_var<-c("spid","t", "status")
+mydata_keep<-mydata[mydata_var]
+
+reshape<-reshape(mydata_keep, idvar="spid", timevar="t", direction="wide")
+
+reshape_var<-c("status.1", "status.2","status.3","status.4","status.5","status.6","status.7","status.8")
+reshape_keep<-reshape[reshape_var]
+
+reshape_mat<-data.matrix(reshape_keep, rownames.force=NA)
+
+seqmat.pval = c()
+for (i in 1:nrow(reshape_mat)) {
+  pval.seq = verifyMarkovProperty(reshape_mat[i,], verbose=FALSE)$p.value
+  seqmat.pval = c(seqmat.pval, pval.seq) }
+
+hist(seqmat.pval, main = "Histogram of P-values for verifying Markov property", xlab = "P-value", ylab = "Number of participants", breaks = 20, xlim=c(0,1), ylim = c(0, 4500)) 
+#abline(v=0.05)
+
+# 
+# length(which(seqmat.pval <=0.05))/length(seqmat.pval)
+# 
+# length(which(seqmat.pval <=0.01))/length(seqmat.pval)
+# 
+# length(which(seqmat.pval <=0.01))
+# 
+# length(which(seqmat.pval <=0.05))
+# 
+# length(which(seqmat.pval <=0.1))
+# 
+# length(which(seqmat.pval <=0.15))
+# 
+# length(which(seqmat.pval <=0.2))
+# 
+# length(which(seqmat.pval <=0.25))
+# 
+# length(which(seqmat.pval <=0.3))
+# 
+# 
+# library(markovchain)
+# 
+# seque = c(1,1,1,1,1,1,1)
+# verifyMarkovProperty(seque)
+# verifyMarkovProperty(seque, verbose=FALSE)$p.value
+# 
+# seque = c(2,1,1,2,1,1,2,3)
+# verifyMarkovProperty(seque)
+# verifyMarkovProperty(seque, verbose=FALSE)$p.value
+# 
+# seque = c(1,2,1,1,2,3,4)
+# verifyMarkovProperty(seque)
+# verifyMarkovProperty(seque, verbose=FALSE)$p.value
+# 
+# seque = c(3,1,1,1,2,1)
+# verifyMarkovProperty(seque)
+# verifyMarkovProperty(seque, verbose=FALSE)$p.value
+# 
+# 
+# 
+# seque1 = c()
+# seque2 = c(1,2,1,1,2,3,4)
+# seque3 = c(3,1,1,1,2,1)
+# 
+# seqmat = rbind(seque1, seque2, seque3)
+# seqmat
+# 
+# 
+# library(spgs)
+# 
+# markov.test(seque, type ="ks.unif.test")$adjusted.p.values 
+# 
+# for (i in 1:nrow(reshape_mat)) {
+#   pval.seq = markov.test(reshape_mat, type ="ks.unif.test")$adjusted.p.values 
+#   seqmat.pval = c(seqmat.pval, pval.seq) }
+# 
+# hist(seqmat.pval, main = "Histogram of P-values for verifying Markov property", xlab = "P-value", breaks = 20)
+# #abline(v=c(.05))
+# 
+# length(which(seqmat.pval <=0.05))/length(seqmat.pval)
+# 
+# length(which(seqmat.pval <=0.01))/length(seqmat.pval)
+# 
+# length(which(seqmat.pval <=0.01))
+# 
+# length(which(seqmat.pval <=0.05))
+# 
+# 
+# install.packages("xlsx")
+# 
+# write.table(reshape_mat, "C:/Users/Mohammed/reshape_mat.txt", sep="\t")
+# 
+# reshape_mat$flag<-ifelse((reshape_mat$status.1==reshape_mat$status.2) & (status.2==status.3) & (status.3==status.4) & (status.4==status.5) &(status.5==status.6) & (status.6==status.7) & (status.7==status.8), 1,0)
+```
+
+
+```{r Prevalence}
+#We go back to the original model of time here. 
+# r<-prevalence.msm(mydata3.msm, times=0:7)
+# r
+# plot.prevalence.msm(mydata3.msm, legend.pos=c(2, 100))
+```
+
+
+
