@@ -49,7 +49,7 @@ gloabl logpath "E:\nhats\data\Projects\..."
 //libname logpath "E:\nhats\data\Projects\..."
 
 
-H="xxxxxxxGeneric template"
+H="Generic template"
 clear all
 global ref_data "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\ref_data"
 
@@ -353,7 +353,7 @@ annotate(stars) asymbol(*,**) addtable replace
 
 
 
-H="xxxxxxxHRS Geographic & ADI "
+H="HRS Geographic & ADI "
 /*
 use ADI_2013_v2.0 and ADI_2015! 
 FIPS: The block group Census ID: state(2chars)county(3chars)Tract(6chars)Block(1char)= 12chars total  
@@ -485,7 +485,7 @@ drop  rescode urbrur1993 urbrur2003 urbrur2013 countyname10 countyname10 linkcen
 save "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\adi_hrsgeo_public", replace
 
 
-H="xxxxxxFEMA Disaster Declaration "
+H="FEMA Disaster Declaration "
 /*
 Cleaning FEMA disaster declarations
 Merge in crosswalk fips & give counties w/o disasters a 0 
@@ -576,852 +576,416 @@ drop  rescode urbrur1993 urbrur2003 urbrur2013 countyname10 countyname10 linkcen
 
 save "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\climate_merged_public.dta", replace
 
-H="new climate"
-use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\trk2016tr_r.dta", clear
+H="xxxxxEBL merging multiple years"
+*use "D:\HRS\Shared\base_data\hrs_cleaned\core_00_to_14_unr.dta", clear
+//note--half of disaster counties don't match with anybody in HRS, just 5 counties in HRS don't match (74 obs total)
+use "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\climate_clean_new", clear
+rename st stctyfips10 
+tempfile t1
+save `t1'
 
-rename (gwgtrnh hwgtrnh jwgtrnh kwgtrnh lwgtrnh mwgtrnh nwgtrnh owgtrnh) (wgtrnh2000 wgtrnh2002 wgtrnh2004 wgtrnh2006 wgtrnh2008 wgtrnh2010 wgtrnh2012 wgtrnh2014)
+//get a dataset with all of the interviews, core and exit
+use "D:\HRS\Shared\base_data\hrs_cleaned\core_00_to_14.dta", clear
+gen ivw_type=1
+append using "D:\HRS\Shared\base_data\hrs_cleaned\exit_02_to_16_dt.dta"
+replace ivw_type=2 if missing(ivw_type)
+label define ivw_type 1 "Core" 2 "Exit"
+replace core_year=exit_year if missing(core_year)
+merge m:1 id using "D:\HRS\Shared\base_data\hrs_cleaned\death_date_2015.dta", keep(match master)
+replace c_ivw_date=death_all if ivw_type==2
+keep id core_year c_ivw_date ivw_type
+tempfile ivws
+save `ivws'
 
+use hhid pn stcty wave using "D:\HRS\Shared\raw\HRS\hrs_restricted_2014\Detail\2014\hrsxdetail2014(2nd try unzip)\stata\HRSXGEO14b_R.dta", clear
+gen id=hhid+pn
+rename wave core_year
+destring core_year, replace
+gen wave=(core_year-1990)/2
+merge 1:1 id core_year using `ivws', keep(match) nogen
+sort id core_year
+by id: gen ivw_date_n1=c_ivw_date[_n-1]
 
-reshape long wgtrnh, i(hhid pn ) j(core_year)
+forvalues i=5/12 {
+	preserve
+	keep if wave==`i'
+	joinby stc using `t1', unmatched(both) _merge(_merge)
+	keep if _merge==3
+	keep if inrange(inc_date,ivw_date_n1,c_ivw_date-1)
+	*keep if inrange(inc_date,c_ivw_date-730,c_ivw_date-1)
+	drop inc_date
+	duplicates drop
+	tempfile t`i'
+	save `t`i''
+	restore
+}
 
-tempfile tracker
-save `tracker'
+clear 
+forvalues i=5/12 {
+	append using `t`i''
+}
 
-use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\core_00_to_16_unr.dta", replace 
+keep id core_year mete* hydro geo climate ivw_type
+duplicates drop
+duplicates report id core_year
+merge m:1 id core_year using `ivws', nogen keepusing(ivw_type)
 
-drop hhidpn 
-rename id hhidpn
+foreach x of varlist mete_storm mete_ext hydro geo climate {
+replace `x'=0 if missing(`x') 
+replace `x'=. if core_year==1998
+by id core_year, sort: egen a=max(`x')
+replace `x'=a
+drop a
+}
+duplicates drop
 
-bys hhidpn: egen female1=max(female)
-replace female=female1
-
-keep hhid pn hhidpn core_year female married srh_pf cesd* depr_2_wks_hrs adl_dr_core adl_wk_core adl_bh_core adl_e_core adl_tx_core adl_t_core nhres nw_quart nw_lowest nw_midlow nw_midhigh nw_highest nw_missing fw_quart fw_lowest fw_midlow fw_midhigh fw_highest adl_independent_core medicare medicaid soc_visit proxy_core iadl_independent_core wgtr 
-
-merge 1:1 hhid pn core_year using "`tracker'", keep(master matched) nogen keepusing(degree birthyr secu stratum wgtrnh)
-
-sort hhid pn core_year
-by hhid pn: carryforward degree birthyr secu stratum, replace
-
-merge 1:1 hhid pn core_year using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\pdem_withvarnames_00_16.dta", nogen
-
+egen ind_disaster=rowmax(mete_* hydro geo climate)
 rename core_year year
+order id year ivw_type
 
-merge 1:1 hhid pn year using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\helper_hours_2016.dta", keepusing(n_f n_i) nogen keep(master matched)
+drop if ivw_type==2
+drop ivw_type
+save "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\fema_dis_00_14.dta", replace
+
+H="xxxxxEBL merging multiple years by n1 address"
+*use "D:\HRS\Shared\base_data\hrs_cleaned\core_00_to_14_unr.dta", clear
+//note--half of disaster counties don't match with anybody in HRS, just 5 counties in HRS don't match (74 obs total)
+use "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\climate_clean_new", clear
+rename st stctyfips10 
+tempfile t1
+save `t1'
+
+//get a dataset with all of the interviews, core and exit
+use "D:\HRS\Shared\base_data\hrs_cleaned\core_00_to_16.dta", clear
+gen ivw_type=1
+append using "D:\HRS\Shared\base_data\hrs_cleaned\exit_02_to_16_dt.dta"
+replace ivw_type=2 if missing(ivw_type)
+label define ivw_type 1 "Core" 2 "Exit"
+replace core_year=exit_year if missing(core_year)
+merge m:1 id using "D:\HRS\Shared\base_data\hrs_cleaned\death_date_2016.dta", keep(match master)
+replace c_ivw_date=death_all if ivw_type==2
+gen ind_died_24m=death_all<=c_ivw_date+730
+
+keep id core_year c_ivw_date ivw_type death_all ind_died_24m
+keep if ivw_type==1
+tempfile ivws
+save `ivws'
+
+use hhid pn stcty year using "D:\HRS\Shared\raw\HRS\hrs_restricted_2016\GeoCode\Detail\2016\hrsxdetail2016\stata\HRSXGEO16V7B_R.dta", clear
+gen id=hhid+pn
+rename wave core_year
+destring core_year, replace
+gen wave=(core_year-1990)/2
+merge 1:1 id core_year using `ivws', keep(match) nogen
+sort id core_year
+by id: gen ivw_date_n1=c_ivw_date
+
+forvalues i=5/12 {
+	preserve
+	keep if wave==`i'
+	joinby stc using `t1', unmatched(both) _merge(_merge)
+	keep if _merge==3
+	keep if inrange(inc_date,ivw_date_n1,ivw_date_n1+730)
+	drop if death_all<inc_date & !missing(inc_date)
+	drop inc_date death_all
+	duplicates drop
+	tempfile t`i'
+	save `t`i''
+	restore
+}
+
+clear 
+forvalues i=5/12 {
+	append using `t`i''
+}
+
+keep id core_year mete* hydro geo climate ivw_type 
+duplicates drop
+duplicates report id core_year
+merge m:1 id core_year using `ivws', nogen keepusing(ivw_type ind_died_24m)
+
+
+foreach x of varlist mete_storm mete_ext hydro geo climate {
+replace `x'=0 if missing(`x') 
+replace `x'=. if core_year==1998
+by id core_year, sort: egen a=max(`x')
+replace `x'=a
+drop a
+}
+duplicates drop
+
+egen ind_disaster=rowmax(mete_* hydro geo climate)
+rename core_year year
+order id year ivw_type
+
+drop if ivw_type==2
+drop ivw_type
+save "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\fema_dis_00_14_n1loc.dta", replace
+
+H="xxxxxnew merge on nov 4"
+*use "D:\HRS\Shared\base_data\hrs_cleaned\core_00_to_14_unr.dta", clear
+//note--half of disaster counties don't match with anybody in HRS, just 5 counties in HRS don't match (74 obs total)
+use "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\climate_clean_new_06242020", clear
+rename st stctyfips10 
+tempfile t1
+save `t1'
+
+//get a dataset with all of the interviews, core and exit
+use "D:\HRS\Shared\base_data\hrs_cleaned\core_00_to_16.dta", clear
+gen ivw_type=1
+append using "D:\HRS\Shared\base_data\hrs_cleaned\exit_02_to_16_dt.dta"
+replace ivw_type=2 if missing(ivw_type)
+label define ivw_type 1 "Core" 2 "Exit"
+replace core_year=exit_year if missing(core_year)
+merge m:1 id using "D:\HRS\Shared\base_data\hrs_cleaned\death_date_2016.dta", keep(match master)
+replace c_ivw_date=death_all if ivw_type==2
+gen ind_died_24m=death_all<=c_ivw_date+730
+
+keep id core_year c_ivw_date ivw_type death_all ind_died_24m
+keep if ivw_type==1
+tempfile ivws
+save `ivws'
+
+use hhid pn stcty year using "D:\HRS\Shared\raw\HRS\hrs_restricted_2016\GeoCode\Detail\2016\hrsxdetail2016\stata\HRSXGEO16V7B_R.dta", clear
+gen id=hhid+pn
 rename year core_year
+destring core_year, replace
+gen wave=(core_year-1990)/2
+merge 1:1 id core_year using `ivws', keep(match) nogen
+sort id core_year
+by id: gen ivw_date_n1=c_ivw_date
 
-gen dementia = 0 if pdem!=.
-replace dementia = 1 if pdem>=.5 & pdem!=.
+forvalues i=5/12 {
+	preserve
+	keep if wave==`i'
+	joinby stc using `t1', unmatched(both) _merge(_merge)
+	keep if _merge==3
+	keep if inrange(inc_date,ivw_date_n1,ivw_date_n1+730)
+	drop if death_all<inc_date & !missing(inc_date)
+	drop inc_date death_all
+	duplicates drop
+	tempfile t`i'
+	save `t`i''
+	restore
+}
 
+clear 
+forvalues i=5/12 {
+	append using `t`i''
+}
+
+keep id core_year hurricane sev_storm mete* hydro geo climate ivw_type 
+duplicates drop
+duplicates report id core_year
+merge m:1 id core_year using `ivws', nogen keepusing(ivw_type ind_died_24m)
+
+
+foreach x of varlist hurricane sev_storm mete_storm mete_ext hydro geo climate {
+replace `x'=0 if missing(`x') 
+replace `x'=. if core_year==1998
+by id core_year, sort: egen a=max(`x')
+replace `x'=a
+drop a
+}
+duplicates drop
+
+egen ind_disaster=rowmax(hurricane sev_storm mete_* hydro geo climate)
 rename core_year year
+order id year ivw_type
+
+drop if ivw_type==2
+drop ivw_type
+save "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\fema_dis_00_14_n1loc_110420.dta", replace
+
+H="xxxxxMH adding vars"
+use "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\ref_data\zip fips.dta", clear
+
+tostring zipcode, replace
+
+replace zipcode="00"+zipcode if strlen(zipcode)==3
+replace zipcode="0"+zipcode if strlen(zipcode)==4
+
+tempfile zipcode
+save `zipcode'
+
+import excel "D:\SSH Transfer\New Files moved on\Mohammed\20200728\ruralurbancodes2013.xls", sheet("Rural-urban Continuum Code 2013") firstrow case(lower) clear
+
+tempfile metro
+save `metro'
 
 
-tempfile core
-save "`core'", replace
+use "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\fema_dis_00_14_n1loc_110420.dta", clear
+
+destring id, replace
+
+merge m:1 id using "D:\HRS\Shared\base_data\hrs_cleaned\restr_tracker_v2014.dta", keep(master matched) nogen 
 
 
-use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\base_data\Rand downloads\randhrs1992_2016v2.dta", clear 
+gen state="."
+gen zipcode="."
+replace state=stateusps98 if year==1998
+replace zipcode=zipcode98 if year==1998
 
-drop hhidpn
-
-gen hhidpn=hhid+pn
-
-keep hhidpn raracem rahispan
-
-gen white=0
-replace white=. if raracem==.m | rahispan==.m
-replace white=1 if raracem==1 & rahispan==0
-label var white "Non-Hispanic White"
-
-
-gen black=0
-replace black=. if raracem==.m | rahispan==.m
-replace black=1 if raracem==2 & rahispan==0
-label var black "Non-Hispanic Black"
-
-gen other=0
-replace other=. if raracem==.m | rahispan==.m
-replace other=1 if raracem==3 & rahispan==0
-label var other "Non-Hispanic, Other"
-
-gen hispanic=0
-replace hispanic=. if raracem==.m | rahispan==.m
-replace hispanic=1 if rahispan==1 & raracem!=.m
-label var hispanic "Hispanic"
-
-
-tempfile race
-save `race'
-
-use "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Climate change\data\fema_dis_00_16_n1loc_02262021.dta", replace
-drop if year==.
-drop white black other_na_api_race hisp_eth
-
-merge m:1 hhidpn using "`race'", keep(master matched) 
-
-drop id
-
-merge m:1 hhidpn year using "`core'", keep(matched) nogen 
-
-drop if nhres==1
-
-//replace wgtr=wgtrnh if year!=2016 & nhres==1
-
-
-
-/////
-replace ind_disaster=0 if mete_ext==1 & hydro==0 & geo==0 & climate==0 & mete_storm==0 & hurricane==0 & sev_storm==0 
-/////
-
-
-
-keep hhidpn hhid pn year hurricane sev_storm mete_storm mete_ext hydro geo climate ind_disaster female degree married srh cesd1 cesd2 cesd3 cesd4 cesd5 cesd6 cesd7 cesd8 adl_dr_core adl_wk_core adl_bh_core adl_e_core adl_tx_core adl_t_core nhres nw_quart nw_lowest nw_midlow nw_midhigh nw_highest nw_missing fw_quart fw_lowest fw_midlow fw_midhigh fw_highest birthyr adl_independent_core medicare medicaid soc_visit dementia ind_died_24m proxy_core iadl_independent_core region metro white black other hispanic wgtr secu stratum n_f n_i
-
-gen age=year-birthyr
-
-gen age80=.
-replace age80=0 if age<80
-replace age80=1 if age>=80 & !missing(age)
-
-keep if age>=65 & !missing(age)
-
-gen hs_educ=0 if degree==0
-replace hs_educ=1 if degree>0 &!missing(degree)
-label var hs_educ "HS Educ +"
-
-gen formal=0 
-replace formal=1 if n_f>0 & !missing(n_f)
-label var formal "Paid helper (paid/institutional)"
-
-gen informal=0 
-replace informal=1 if n_i>0 & !missing(n_i)
-label var informal "Informal helper (spouse and other)" 
-
-gen any_care=0
-replace any_care=1 if (n_f>0 | n_i>0) & (!missing(n_f) | !missing(n_i))
-label var any_care "Any Caregiver"
-
-tab region, gen(region)
-label var region1 "Northeast"
-label var region2 "Midwest"
-label var region3 "South"
-label var region4 "West"
-
-label var mete_storm "Meterological Storm"
-label var mete_ext "Meterological Extreme Temperature"
-label var hydro "Hydrological"
-label var geo "Geophysical"
-label var climate "Climatological "
-label var ind_disaster "Any Disaster"
-label var sev_storm "Severe Storm"
-label var hurricane "Hurricane"
-
-drop if year==1998
-gen n=1
-
-
-H="table 1"
-
-/*
-local cvars age 
-local ivars1 age80 female white black other_na_api_race hisp_eth married hs_educ proxy_core adl_independent_core iadl_independent_core medicare medicaid nhres soc_visit dementia srh_pf ind_died_24m nw_lowest nw_midlow nw_midhigh nw_highest metro region1 region2 region3 region4
-local ivars2 hurricane sev_storm mete_storm hydro geo climate
-
-local rn: word count `cvars' `ivars1' `ivars2' 1 1
-di `rn'
-mat tab=J(`rn',2,.)
-mat stars=J(`rn',2,0)
-local r=1
-local c=1
-forvalues i=0/1{
-local r=1
-	foreach x in `cvars'{
-		sum `x' if ind_disaster==`i'
-		mat tab[`r',`c']=`r(mean)'
-		reg `x' ind_disaster 
-		test ind_disaster
-		mat stars[`r',2]==(r(p)<.01) + (r(p)<.05)
-		local r=`r'+1
+foreach i in 00 02 04 06 08 10 12 14{
+	replace state=stateusps`i' if year==20`i'
+	replace zipcode=zipcode`i' if year==20`i'
 }
-	foreach x in `ivars1' `ivars2'{
-		sum `x' if ind_disaster==`i'
-		capture mat tab[`r',`c']=`r(mean)'*100
-		tab `x' ind_disaster, chi2
-		mat stars[`r',2]==(r(p)<.01) + (r(p)<.05)
-		local r=`r'+1
-}
-sum n if  ind_disaster==`i'
-mat tab[`r'+1,`c']=r(N)
+sort id year
+by id: carryforward id year, replace 
 
-local r=1
-local c=`c'+1
+gen region=1 if inlist(state, "CT","ME","MA","NH","RI","VT","NJ","NY","PA")
+replace region=2 if inlist(state, "IN","IL","MI","OH","WI","IA","KS","MN","MO")
+replace region=2 if inlist(state,"NE","ND","SD")
+replace region=3 if inlist(state, "DE","DC","FL","GA","MD","NC","SC","VA","WV")
+replace region=3 if inlist(state,"AL","KY","MS","TN", "AR","LA","OK","TX")
+replace region=4 if inlist(state, "AZ","CO","ID","NM","MT","UT","NV","WY","AK")
+replace region=4 if inlist(state,"CA","HI","OR","WA")
+
+merge m:1 zipcode using "`zipcode'", keep(master matched) nogen
+
+merge m:1 fips using `metro', keep(master matched) nogen
+
+gen metro=0
+replace metro=1 if inlist(rucc_2013, 1,2 ,3)
+
+
+keep id-ind_disaster white black other_na_api_race region hisp_eth metro
+
+save "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\fema_dis_00_14_n1loc_110420.dta", replace 
+
+H="Merging multiple years by n1 address"
+*use "D:\HRS\Shared\base_data\hrs_cleaned\core_00_to_14_unr.dta", clear
+//note--half of disaster counties don't match with anybody in HRS, just 5 counties in HRS don't match (74 obs total)
+use "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\climate_clean_new_06242020", clear
+rename st stctyfips10 
+tempfile t1
+save `t1'
+
+//get a dataset with all of the interviews, core and exit
+use "D:\HRS\Shared\base_data\hrs_cleaned\core_00_to_16.dta", clear
+gen ivw_type=1
+append using "D:\HRS\Shared\base_data\hrs_cleaned\exit_02_to_16_dt.dta"
+replace ivw_type=2 if missing(ivw_type)
+label define ivw_type 1 "Core" 2 "Exit"
+replace core_year=exit_year if missing(core_year)
+merge m:1 id using "D:\HRS\Shared\base_data\hrs_cleaned\death_date_2016.dta", keep(match master)
+replace c_ivw_date=death_all if ivw_type==2
+gen ind_died_24m=death_all<=c_ivw_date+730
+
+keep id core_year c_ivw_date ivw_type death_all ind_died_24m
+keep if ivw_type==1
+tempfile ivws
+save `ivws'
+
+use hhid pn stcty year using "D:\HRS\Shared\raw\HRS\hrs_restricted_2016\GeoCode\Detail\2016\hrsxdetail2016\stata\HRSXGEO16V7B_R.dta", clear
+gen id=hhid+pn
+rename year core_year
+destring core_year, replace
+gen wave=(core_year-1990)/2
+merge 1:1 id core_year using `ivws', keep(match) nogen
+sort id core_year
+by id: gen ivw_date_n1=c_ivw_date
+
+forvalues i=5/13 { 
+	preserve
+	keep if wave==`i'
+	joinby stc using `t1', unmatched(both) _merge(_merge)
+	keep if _merge==3
+	keep if inrange(inc_date,ivw_date_n1,ivw_date_n1+730)
+	codebook id if death_all<inc_date & !missing(inc_date)
+	drop if death_all<inc_date & !missing(inc_date)
+	drop inc_date death_all
+	duplicates drop
+	tempfile t`i'
+	save `t`i''
+	restore
+}
+//find the number of unique people who died before disaster
+di 46+204+218+252+293+264+287+449+272
+
+clear 
+forvalues i=5/13 {
+	append using `t`i''
 }
 
-mat list tab
-
-mat rownames tab=`cvars' `ivars1' `ivars2' "_" N 
-
-mat list tab
-
-frmttable using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Climate change\output\climate.rtf", replace statmat(tab) ///
- title("Sample Characteristics by having a Disaster") ///
- ctitles("" "No Disaster" "Disaster") ///
- sdec(2) annotate(stars) asymbol(*,**) note("*p<.05; **p<.01") ///
- varlabels 
- 
-preserve
-*/
- 
-gen no_ind_disaster=.
-replace no_ind_disaster=0 if ind_disaster==1
-replace no_ind_disaster=1 if ind_disaster==0
-label var no_ind_disaster "No Disaster"
-
-gen formal_dem= formal if dementia==1
-label var formal_dem "Paid helper (paid/institutional) with Dementia only"
-
-gen informal_dem= informal if dementia==1
-label var informal_dem "Informal helper (paid/institutional) with Dementia only"
-
-gen care_dem= 0 if dementia==1
-replace care_dem=1 if (informal==1 | formal==1) & dementia==1
-label var care_dem "Any helper with Dementia only"
-
-gen both_dem=0 if dementia==1
-replace both_dem=1 if informal==1 & formal==1 & dementia==1
-label var both_dem "Have formal and informal helper with Dementia only"
-
-gen outer_dem=0 if dementia==1
-replace outer_dem=1 if (informal==1 | formal==1) & dementia==1 
-replace outer_dem=0 if (informal==1 & formal==1) & dementia==1
-label var outer_dem "Have either formal or informal not both with Dementia"
+keep id hhid pn core_year hurricane sev_storm mete* hydro geo climate ivw_type 
+duplicates drop
+duplicates report id core_year
+merge m:1 id core_year using `ivws', nogen keepusing(ivw_type ind_died_24m)
 
 
-replace wgtr=wgtr/9
-replace stratum=62 if stratum>62 
- 
-svyset secu [pw=wgtr], strata(stratum)
-sum n [aw=wgtr]
-  
-local cvars age 
-local ivars1 age80 female white black other hispanic married hs_educ proxy_core adl_independent_core iadl_independent_core medicare medicaid soc_visit dementia srh_pf ind_died_24m formal informal formal_dem informal_dem care_dem both_dem outer_dem nw_lowest nw_midlow nw_midhigh nw_highest metro region1 region2 region3 region4 
-local ivars2 hurricane sev_storm mete_storm hydro geo climate ind_disaster no_ind_disaster
-
-local rn: word count `cvars' `ivars1'  1 1 1 
-di `rn'
-mat tab=J(`rn',8,.)
-mat stars=J(`rn',8,0)
-local r=1
-local c=1
-
-foreach y in `ivars2' {
-local r=1
-	foreach x in `cvars'{
-		sum `x' if `y'==1 [aw=wgtr]
-			if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0 {
-			mat tab[`r',`c']=`r(mean)'
-			svy, subpop(if `y'==1 | no_ind_disaster==1): reg `x' `y' 
-			test `y'
-			mat stars[`r',`c']==(r(p)<.01) + (r(p)<.05)
-			}
-		local r=`r'+1
-		
+foreach x of varlist hurricane sev_storm mete_storm mete_ext hydro geo climate {
+replace `x'=0 if missing(`x') 
+replace `x'=. if core_year==1998
+by id core_year, sort: egen a=max(`x')
+replace `x'=a
+drop a
 }
-	foreach x in `ivars1' {
-		sum `x' if `y'==1 [aw=wgtr]
-			if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0 {
-			capture mat tab[`r',`c']=`r(mean)'*100
-			svy, subpop(if `y'==1 | no_ind_disaster==1):  tab `x' `y'
-			mat stars[`r',`c']==(e(p_Pear)<.01) + (e(p_Pear)<.05)
-			}
-		local r=`r'+1
-}
+duplicates drop
 
+egen ind_disaster=rowmax(hurricane sev_storm mete_* hydro geo climate)
+rename core_year year
+order id year ivw_type
 
-sum n if `y'==1
-mat tab[`r'+1,`c']=r(N)
+drop if ivw_type==2
+drop ivw_type
+save "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\fema_dis_00_16_n1loc_111220.dta", replace
 
-sum n if `y'==1 [aw=wgtr]
-mat tab[`r'+2,`c']=r(sum_w)
+H="adding vars"
+use "D:\HRS\Shared\raw\HRS\hrs_restricted_2016\GeoCode\Detail\2016\hrsxdetail2016\stata\HRSXGEO16V7B_R.dta", clear
+gen id=hhid+pn
 
-local r=1
-local c=`c'+1
-}
+tempfile geo
+save `geo'
 
-mat list tab
+use "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\ref_data\zip fips.dta", clear
 
-mat rownames tab=`cvars' `ivars1'  "_" N "N estimate" 
-mat colnames tab= `ivars2'
-mat list tab
+tostring zipcode, replace
 
-frmttable using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Climate change\output\climate_`c(current_date)'.rtf", replace statmat(tab) ///
- title("Table 1: Sample Characteristics by Disaster Category Cond. on Disasters") ///
- sdec(2) annotate(stars) asymbol(*,**) note("*p<.05; **p<.01" "Tests are comparing between having specified disaster and not having any disaster." "Groups are not mutually exclusive" "Blank cells are displayed when there is low cell size") ///
- varlabels 
- 
+replace zipcode="00"+zipcode if strlen(zipcode)==3
+replace zipcode="0"+zipcode if strlen(zipcode)==4
 
- 
-local cvars  
-local ivars1 adl_independent_core cesd1 medicare medicaid dementia formal informal formal_dem informal_dem care_dem both_dem outer_dem 
-local ivars2 hurricane sev_storm mete_storm hydro geo climate ind_disaster no_ind_disaster 
+tempfile zipcode
+save `zipcode'
 
-local rn: word count  `ivars2'  1 1 
-di `rn'
-mat tab=J(`rn',12,.)
-mat stars=J(`rn',12,0)
-local r=1
-local c=1
+import excel "D:\SSH Transfer\New Files moved on\Mohammed\20200728\ruralurbancodes2013.xls", sheet("Rural-urban Continuum Code 2013") firstrow case(lower) clear
 
-foreach y in `ivars1' {
-local r=1
-	foreach x in `ivars2' {
-		sum `x' if `y'==1 [aw=wgtr]
-			if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0 {
-			capture mat tab[`r',`c']=`r(mean)'*100
-			svy: tab `x' `y'
-			mat stars[`r',`c']==(e(p_Pear)<.01) + (e(p_Pear)<.05)
-			}
-		local r=`r'+1
-}
-sum n if `y'==1
-mat tab[`r'+1,`c']=r(N)
+tempfile metro
+save `metro'
 
-local r=1
-local c=`c'+1
-}
 
-mat list tab
+use "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\fema_dis_00_16_n1loc_111220.dta", clear
 
-mat rownames tab=`cvars' `ivars2'  "_" N 
-mat colnames tab= `ivars1'
-mat list tab
 
-frmttable using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Climate change\output\climate_`c(current_date)'.rtf", replace statmat(tab) ///
- title("Table 2: Sample Characteristics by variables") ///
- sdec(2) annotate(stars) asymbol(*,**) note("*p<.05; **p<.01"  "Groups are not mutually exclusive" "Blank cells are displayed when there is low cell size") ///
- varlabels  addtable  
+merge 1:1 id year using "`geo'", keep(master matched)  nogen
 
-H="sensitivity"
 
- //drop if ind_disaster==0 
- 
-replace wgtr= wgtr*9
- 
-//indicator disaster 
- 
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum  ind_disaster [aw=wgtr]
-local m`i'=`r(mean)'
+gen state=stateusps
 
-restore
-}
 
-di `m2000'
-di `m2002' 
-di `m2004'
-di `m2006' 
-di `m2008'
-di `m2010' 
-di `m2012'
-di `m2014'
-di `m2016'
+gen region=1 if inlist(state, "CT","ME","MA","NH","RI","VT","NJ","NY","PA")
+replace region=2 if inlist(state, "IN","IL","MI","OH","WI","IA","KS","MN","MO")
+replace region=2 if inlist(state,"NE","ND","SD")
+replace region=3 if inlist(state, "DE","DC","FL","GA","MD","NC","SC","VA","WV")
+replace region=3 if inlist(state,"AL","KY","MS","TN", "AR","LA","OK","TX")
+replace region=4 if inlist(state, "AZ","CO","ID","NM","MT","UT","NV","WY","AK")
+replace region=4 if inlist(state,"CA","HI","OR","WA")
 
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum n if ind_disaster==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
+merge m:1 zipcode using "`zipcode'", keep(master matched) nogen
 
-restore
-}
+merge m:1 fips using `metro', keep(master matched) nogen
 
-di (`m2000'+ `m2002' + `m2004'+ `m2006' + `m2008'+ `m2010' + `m2012'+ `m2014'+ `m2016')/9
+gen metro=0
+replace metro=1 if inlist(rucc_2013, 1,2 ,3)
 
-di `m2000'
-di `m2002' 
-di `m2004'
-di `m2006' 
-di `m2008'
-di `m2010' 
-di `m2012'
-di `m2014'
-di `m2016'
+gen hhidpn=id
 
-// any helper 
+destring id, replace
+merge m:1 id using "D:\HRS\Shared\base_data\hrs_cleaned\restr_tracker_v2014.dta", keep(master matched) nogen
 
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum  formal if ind_disaster==1 [aw=wgtr]
-local m`i'=`r(mean)'
+keep hhidpn id-ind_disaster white black other_na_api_race region hisp_eth metro
 
-restore
-}
-
- 
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum n if ind_disaster==1 & formal==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
-di `m2000'
-di `m2002' 
-di `m2004'
-di `m2006' 
-di `m2008'
-di `m2010' 
-di `m2012'
-di `m2014'
-di `m2016'
-
-// disaster and formal care
-
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum  formal_dem [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
-di `m2000'
-di `m2002' 
-di `m2004'
-di `m2006' 
-di `m2008'
-di `m2010' 
-di `m2012'
-di `m2014'
-di `m2016'
-
-//36.3 living with dementia you have atleast 1 disaster
-svy, subpop(if dem ==1): prop ind_disaster
-svy, subpop(if care_dem ==1): prop ind_disaster
-
-
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum n if ind_disaster==1 & formal==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
-
-//disaster and dementia
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum dementia if ind_disaster==1 [aw=wgtr]
-local m`i'=`r(mean)'
-
-restore
-}
-
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum n if ind_disaster==1 & dementia==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-di `m2000'
-di `m2002' 
-di `m2004'
-di `m2006' 
-di `m2008'
-di `m2010' 
-di `m2012'
-di `m2014'
-di `m2016'
-
-//disaster and dementia and any care
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum any_care if ind_disaster==1 & dementia==1 [aw=wgtr]
-local m`i'=`r(mean)'
-
-restore
-}
-
-di `m2000'
-di `m2002' 
-di `m2004'
-di `m2006' 
-di `m2008'
-di `m2010' 
-di `m2012'
-di `m2014'
-di `m2016'
-
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum n if ind_disaster==1 & dementia==1 & any_care==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
-di `m2000'
-di `m2002' 
-di `m2004'
-di `m2006' 
-di `m2008'
-di `m2010' 
-di `m2012'
-di `m2014'
-di `m2016'
-
-/*
-keep if year==2010
-svyset secu [pw=wgtr], strata(stratum)
-
-local cvars age 
-local ivars1 age80 female white black other_na_api_race hisp_eth married hs_educ proxy_core adl_independent_core iadl_independent_core medicare medicaid nhres soc_visit dementia srh_pf ind_died_24m formal nw_lowest nw_midlow nw_midhigh nw_highest metro region1 region2 region3 region4 
-local ivars2 hurricane sev_storm mete_storm hydro geo climate
-
-local rn: word count `cvars' `ivars1'  1 1 1
-di `rn'
-mat tab=J(`rn',6,.)
-mat stars=J(`rn',6,0)
-local r=1
-local c=1
-
-foreach y in `ivars2' {
-local r=1
-	foreach x in `cvars'{
-		sum `x' if `y'==1 [aw=wgtr]
-			if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0{
-			mat tab[`r',`c']=`r(mean)'
-			reg `x' `y' [aw=wgtr]
-			test `y'
-			mat stars[`r',`c']==(r(p)<.01) + (r(p)<.05)
-			}
-		local r=`r'+1
-		
-}
-	foreach x in `ivars1' {
-		sum `x' if `y'==1 [aw=wgtr]
-			if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0 {
-			capture mat tab[`r',`c']=`r(mean)'*100
-			svy: tab `x' `y' 
-			mat stars[`r',`c']==(e(p_Pear)<.01) + (e(p_Pear)<.05)
-			}
-		local r=`r'+1
-}
-sum n if `y'==1
-mat tab[`r'+1,`c']=r(N)
-
-sum n if `y'==1 [aw=wgtr]
-mat tab[`r'+2,`c']=r(sum_w)
-
-local r=1
-local c=`c'+1
-}
-
-mat list tab
-
-mat rownames tab=`cvars' `ivars1'  "_" N "N estimate" 
-mat colnames tab= `ivars2'
-mat list tab
-
-frmttable using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Climate change\output\climate.rtf", replace statmat(tab) ///
- title("Table 3: 2010 Sample Characteristics by Disaster Category Cond. on Disasters") ///
- sdec(2) annotate(stars) asymbol(*,**) note("*p<.05; **p<.01" "Tests are comparing between having and not having the specified disaster." "Groups are not mutually exclusive" "Blank cells are displayed when there is low cell size") ///
- varlabels addtable 
- 
- */
- 
- svyset secu [pw=wgtr], strata(stratum)
- local ivars2 hurricane sev_storm mete_storm hydro geo climate ind_disaster
- 
-local rn: word count `ivars2'  1 1 1 1 1
- 
-di `rn'
-mat tab=J(`rn',9,.)
-
-local r=1
-local c=1
- forvalues i=2000(2)2016{
-
- local r=1
- foreach y in `ivars2' {
-	sum `y' if year==`i' [aw=wgtr]
-	if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0{
-	mat tab[`r',`c']=`r(mean)'*100
-	}
-	local r=`r'+1
-		
-}
-
-sum n if year==`i' & ind_disaster==1
-mat tab[`r'+1,`c']=`r(N)'
-
-sum n if year==`i' & ind_disaster==1 [aw=wgtr]
-mat tab[`r'+2,`c']=`r(sum_w)'
-
-sum n if year==`i'
-mat tab[`r'+3,`c']=`r(N)'
-
-sum n if year==`i' [aw=wgtr]
-mat tab[`r'+4,`c']=`r(sum_w)'
-local c=`c'+1
-}
-
-
-
-mat list tab
-mat rownames tab= `ivars2'  "_" "N Any Disaster" "N pop est any dis" N "N estimate" 
-mat colnames tab= "2000" "2002" "2004" "2006" "2008" "2010" "2012" "2014" "2016" 
-
-frmttable using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Climate change\output\climate.rtf", replace statmat(tab) ///
- title("Table 3: Disaster percentage by wave") ///
- sdec(2) note( "Groups are not mutually exclusive" "Blank cells are displayed when there is low cell size") ///
- varlabels addtable 
-
-H="xsensitivity"
-
- //drop if ind_disaster==0 
- 
-replace wgtr= wgtr*9
- 
-//indicator disaster 
- 
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum  ind_disaster [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
- 
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum n if ind_disaster==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
-di (`m2000'+ `m2002' + `m2004'+ `m2006' + `m2008'+ `m2010' + `m2012'+ `m2014'+ `m2016')/9
-
-// disaster and formal care
-
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum  formal if ind_disaster==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
- 
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum n if ind_disaster==1 & formal==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
-
-//disaster and dementia
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum dementia if ind_disaster==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
-
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum n if ind_disaster==1 & dementia==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
-
-//disaster and dementia anf formal
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum formal if ind_disaster==1 & dementia==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-
-
-forvalues i=2000(2)2016{
-preserve
-keep if year==`i'
-tab year
-svyset secu [pw=wgtr], strata(stratum)
-sum n if ind_disaster==1 & dementia==1 & formal==1 [aw=wgtr]
-local m`i'=`r(sum_w)'
-
-restore
-}
-/*
-keep if year==2010
-svyset secu [pw=wgtr], strata(stratum)
-
-local cvars age 
-local ivars1 age80 female white black other_na_api_race hisp_eth married hs_educ proxy_core adl_independent_core iadl_independent_core medicare medicaid nhres soc_visit dementia srh_pf ind_died_24m formal nw_lowest nw_midlow nw_midhigh nw_highest metro region1 region2 region3 region4 
-local ivars2 hurricane sev_storm mete_storm hydro geo climate
-
-local rn: word count `cvars' `ivars1'  1 1 1
-di `rn'
-mat tab=J(`rn',6,.)
-mat stars=J(`rn',6,0)
-local r=1
-local c=1
-
-foreach y in `ivars2' {
-local r=1
-	foreach x in `cvars'{
-		sum `x' if `y'==1 [aw=wgtr]
-			if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0{
-			mat tab[`r',`c']=`r(mean)'
-			reg `x' `y' [aw=wgtr]
-			test `y'
-			mat stars[`r',`c']==(r(p)<.01) + (r(p)<.05)
-			}
-		local r=`r'+1
-		
-}
-	foreach x in `ivars1' {
-		sum `x' if `y'==1 [aw=wgtr]
-			if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0 {
-			capture mat tab[`r',`c']=`r(mean)'*100
-			svy: tab `x' `y' 
-			mat stars[`r',`c']==(e(p_Pear)<.01) + (e(p_Pear)<.05)
-			}
-		local r=`r'+1
-}
-sum n if `y'==1
-mat tab[`r'+1,`c']=r(N)
-
-sum n if `y'==1 [aw=wgtr]
-mat tab[`r'+2,`c']=r(sum_w)
-
-local r=1
-local c=`c'+1
-}
-
-mat list tab
-
-mat rownames tab=`cvars' `ivars1'  "_" N "N estimate" 
-mat colnames tab= `ivars2'
-mat list tab
-
-frmttable using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Climate change\output\climate.rtf", replace statmat(tab) ///
- title("Table 3: 2010 Sample Characteristics by Disaster Category Cond. on Disasters") ///
- sdec(2) annotate(stars) asymbol(*,**) note("*p<.05; **p<.01" "Tests are comparing between having and not having the specified disaster." "Groups are not mutually exclusive" "Blank cells are displayed when there is low cell size") ///
- varlabels addtable 
- 
- */
- 
- svyset secu [pw=wgtr], strata(stratum)
- local ivars2 hurricane sev_storm mete_storm hydro geo climate ind_disaster
- 
-local rn: word count `ivars2'  1 1 1 1 1
- 
-di `rn'
-mat tab=J(`rn',9,.)
-
-local r=1
-local c=1
- forvalues i=2000(2)2016{
-
- local r=1
- foreach y in `ivars2' {
-	sum `y' if year==`i' [aw=wgtr]
-	if `r(N)'*`r(mean)'>=11 | `r(N)'*`r(mean)'==0{
-	mat tab[`r',`c']=`r(mean)'*100
-	}
-	local r=`r'+1
-		
-}
-
-sum n if year==`i' & ind_disaster==1
-mat tab[`r'+1,`c']=`r(N)'
-
-sum n if year==`i' & ind_disaster==1 [aw=wgtr]
-mat tab[`r'+2,`c']=`r(sum_w)'
-
-sum n if year==`i'
-mat tab[`r'+3,`c']=`r(N)'
-
-sum n if year==`i' [aw=wgtr]
-mat tab[`r'+4,`c']=`r(sum_w)'
-local c=`c'+1
-}
-
-
-
-mat list tab
-mat rownames tab= `ivars2'  "_" "N Any Disaster" "N pop est any dis" N "N estimate" 
-mat colnames tab= "2000" "2002" "2004" "2006" "2008" "2010" "2012" "2014" "2016" 
-
-frmttable using "J:\Geriatrics\PCare\HRS Projects\Data & Project-based (reference docs, etc)\HRS\Climate change\output\climate.rtf", replace statmat(tab) ///
- title("Table 3: Disaster percentage by wave") ///
- sdec(2) note( "Groups are not mutually exclusive" "Blank cells are displayed when there is low cell size") ///
- varlabels addtable 
+save "D:\HRS\Projects\exploratory\AK_KO_climate_dem\data\final_data\fema_dis_00_16_n1loc_111220.dta", replace 
 
 H="Change log"
 ********************Change Log******************** 
@@ -1430,13 +994,18 @@ H="Change log"
 
 Updates:
 
-06/23/2020 MH
--------------
-Changed climate definitions. Added in variables to table 1. 
+11/12/2020 MH
+------------
+Updating the code and fixing the restricted file issue. 
 
-05/15/2020 MH
+11/4/2020 MH
+------------
+Adding in 2016 HRS data. 
+
+5/7/2020 CY
 -------------
-Adding in code for new dataset with n1 p1 interviews for disasters. 
+Merged FEMA disaster declarations between each interview
+
 
 3/12/2020 CY
 -------------
